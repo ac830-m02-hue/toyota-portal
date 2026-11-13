@@ -3,1395 +3,862 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>外勤業代實績與戰情查詢系統 (V3 旗艦版)</title>
+  <title>桃苗汽車實績與戰情查詢系統</title>
+  <!-- 引入 Tailwind CSS 與 SheetJS (原生 Excel 解析套件) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- 導入 SheetJS 以支援原生 .xlsx / .xls 解析 -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
-    body {
-      font-family: 'Noto Sans TC', sans-serif;
-      user-select: none;
-    }
-    /* 動態浮水印圖層 */
+    /* 全域防洩密工號浮水印 (穿透點擊) - 前後台皆啟用 */
     #watermark-layer {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      pointer-events: none;
+      inset: 0;
       z-index: 9999;
-      background-repeat: repeat;
+      pointer-events: none;
+      opacity: 0.16;
     }
-    /* 類 Excel 表格固定表頭、首欄與置底合計列 */
-    .excel-table-container {
-      max-height: 60vh;
-      min-height: 380px;
-      overflow: auto;
-      position: relative;
+    .custom-scrollbar::-webkit-scrollbar {
+      height: 7px;
+      width: 7px;
     }
-    .excel-table thead th {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      background-color: #f1f5f9;
-      box-shadow: inset 0 -1px 0 #cbd5e1, inset -1px 0 0 #e2e8f0;
-    }
-    .excel-table tfoot th,
-    .excel-table tfoot td {
-      position: sticky;
-      bottom: 0;
-      z-index: 20;
-      background-color: #f8fafc;
-      box-shadow: inset 0 1px 0 #cbd5e1, inset -1px 0 0 #e2e8f0;
-    }
-    .excel-table tbody td {
-      box-shadow: inset -1px -1px 0 #f1f5f9;
-    }
-    .excel-table tbody td:first-child,
-    .excel-table thead th:first-child,
-    .excel-table tfoot td:first-child {
-      position: sticky;
-      left: 0;
-      z-index: 15;
-      background-color: #ffffff;
-    }
-    .excel-table thead th:first-child {
-      z-index: 25;
-      background-color: #e2e8f0;
-    }
-    .excel-table tfoot td:first-child {
-      z-index: 25;
-      background-color: #f1f5f9;
-    }
-    .excel-table tbody tr:hover td {
-      background-color: #f8fafc;
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
     }
   </style>
 </head>
-<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col" onclick="closeAllExcelMenus(event)">
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen relative selection:bg-red-100">
 
-  <!-- 動態工號浮水印層 (管理員登入自動隱藏，其餘人員強制覆蓋) -->
-  <div id="watermark-layer" class="hidden"></div>
+  <!-- 動態浮水印畫布 (前後台全域覆蓋) -->
+  <canvas id="watermark-layer"></canvas>
 
-  <!-- ================= 1. 登入畫面 ================= -->
-  <div id="login-view" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
-      <div class="bg-blue-700 p-6 text-white text-center">
-        <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/20 mb-3 text-2xl">📊</div>
-        <h1 class="text-2xl font-bold tracking-wide">營業實績與戰情查詢系統</h1>
-        <p class="text-blue-100 text-sm mt-1">外勤業代暨所主管專屬雲端資料庫</p>
+  <!-- ==================== 1. 系統登入頁面 ==================== -->
+  <div id="view-login" class="min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-8">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 bg-red-600 text-white rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-md mb-3">
+          <i class="fa-solid fa-chart-line"></i>
+        </div>
+        <h1 class="text-2xl font-black tracking-tight text-slate-800">桃苗汽車實績與戰情查詢系統</h1>
+        <p class="text-xs text-slate-500 mt-1">桃苗汽車 ‧ 業代與主管實績公告平台</p>
       </div>
 
-      <div class="p-6 space-y-5">
-        <div id="login-error" class="hidden bg-red-50 border border-red-200 text-red-600 text-sm p-3 rounded-lg">
-          帳號或密碼錯誤，請重新輸入或點擊下方快速測試按鈕。
-        </div>
-
+      <div class="space-y-4">
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">員工工號 (Account ID)</label>
-          <input id="login-id" type="text" placeholder="請輸入工號 (例如: ADMIN01)" value="ADMIN01"
-            class="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none uppercase">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">員工工號 / 帳號</label>
+          <input type="text" id="login-emp-id" placeholder="請輸入工號 (例: S001)" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
         </div>
-
         <div>
-          <label class="block text-sm font-semibold text-slate-700 mb-1">登入密碼 (Password)</label>
-          <input id="login-pwd" type="password" placeholder="請輸入密碼" value="1234"
-            class="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">登入密碼</label>
+          <input type="password" id="login-password" placeholder="預設密碼 1234" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
         </div>
 
-        <button onclick="handleLogin()"
-          class="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg shadow transition">
+        <button onclick="handleLogin()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg text-sm shadow-md transition duration-150">
           登入系統
         </button>
+      </div>
 
-        <!-- 原型快速切換角色測試區 (4 種身分) -->
-        <div class="pt-4 border-t border-slate-200">
-          <p class="text-xs text-slate-500 font-semibold mb-2 text-center">⚡ 原型測試：點擊一鍵切換不同身分</p>
-          <div class="grid grid-cols-2 gap-2">
-            <button onclick="quickLogin('ADMIN01')" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 py-2 px-2 rounded font-medium text-left flex items-center justify-between">
-              <span>🛠️ 管理員 (免浮水印)</span>
-              <span class="text-[10px] font-mono bg-amber-200/70 px-1.5 py-0.5 rounded">ADMIN01</span>
-            </button>
-            <button onclick="quickLogin('M001')" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 py-2 px-2 rounded font-medium text-left flex items-center justify-between">
-              <span>👔 所長 (中壢所)</span>
-              <span class="text-[10px] font-mono bg-indigo-200/70 px-1.5 py-0.5 rounded">M001</span>
-            </button>
-            <button onclick="quickLogin('D001')" class="text-xs bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 py-2 px-2 rounded font-medium text-left flex items-center justify-between">
-              <span>📋 副所長 (中壢所)</span>
-              <span class="text-[10px] font-mono bg-purple-200/70 px-1.5 py-0.5 rounded">D001</span>
-            </button>
-            <button onclick="quickLogin('S001')" class="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 py-2 px-2 rounded font-medium text-left flex items-center justify-between">
-              <span>🚗 業代 (林志豪)</span>
-              <span class="text-[10px] font-mono bg-emerald-200/70 px-1.5 py-0.5 rounded">S001</span>
-            </button>
-          </div>
+      <!-- 快速體驗切換 -->
+      <div class="mt-6 pt-5 border-t border-slate-100 text-xs">
+        <p class="text-slate-400 text-center mb-2">⚡ 快速測試體驗切換：</p>
+        <div class="grid grid-cols-4 gap-1.5">
+          <button onclick="quickFill('ADMIN01','admin123')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">管理員</button>
+          <button onclick="quickFill('M001','1234')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">所長</button>
+          <button onclick="quickFill('DM001','1234')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">副所長</button>
+          <button onclick="quickFill('S001','1234')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">業代</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ================= 2. 系統主畫面 (登入後) ================= -->
-  <div id="app-view" class="hidden flex-1 flex flex-col">
+  <!-- ==================== 2. 前台資料區 (業代/主管主要介面) ==================== -->
+  <div id="view-portal" class="hidden min-h-screen pb-16">
     <!-- 頂部導覽列 -->
-    <header class="bg-slate-900 text-white shadow-md z-30">
-      <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+      <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <div class="flex items-center space-x-3">
-          <span class="text-xl">📊</span>
+          <span class="w-8 h-8 bg-red-600 text-white rounded-lg flex items-center justify-center font-bold text-sm">T</span>
           <div>
-            <h2 class="font-bold text-base sm:text-lg leading-tight">營業實績與戰情雲端系統</h2>
-            <p class="text-xs text-slate-400">即時實績與重要資料查詢平台 (V3 旗艦版)</p>
+            <h2 class="font-bold text-slate-800 text-base leading-tight">桃苗汽車實績與戰情查詢系統</h2>
+            <p class="text-[11px] text-slate-400">登入同仁：<span id="portal-user-info" class="text-slate-700 font-semibold">--</span></p>
           </div>
         </div>
 
-        <!-- 導覽切換、個人修改密碼與登出 -->
-        <div class="flex items-center space-x-2 sm:space-x-4">
-          <div class="flex bg-slate-800 rounded-lg p-1">
-            <button id="nav-portal-btn" onclick="switchMode('portal')"
-              class="px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium bg-blue-600 text-white transition">
-              📂 前台資料區
-            </button>
-            <button id="nav-admin-btn" onclick="switchMode('admin')"
-              class="hidden px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-300 hover:text-white transition">
-              ⚙️ 管理員後台
-            </button>
-          </div>
-
-          <div class="text-right hidden md:block border-l border-slate-700 pl-4">
-            <div id="user-badge" class="text-sm font-semibold text-white"></div>
-            <div id="user-role-label" class="text-xs text-amber-400"></div>
-          </div>
-
-          <!-- 自助修改密碼按鈕 -->
-          <button onclick="openChangePasswordModal()"
-            class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-lg transition flex items-center gap-1">
-            🔑 改密碼
+        <div class="flex items-center space-x-2">
+          <!-- 自助改密碼按鈕 -->
+          <button onclick="openChangePwdModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition">
+            <i class="fa-solid fa-key mr-1"></i>改密碼
           </button>
-
-          <button onclick="handleLogout()" class="text-xs bg-slate-700 hover:bg-red-600 px-3 py-2 rounded-lg transition">
-            登出
+          <!-- 管理員專用後台入口按鈕 -->
+          <button id="btn-enter-admin" onclick="switchView('admin')" class="hidden px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-medium transition">
+            <i class="fa-solid fa-sliders mr-1"></i>後台管理
+          </button>
+          <!-- 登出按鈕 -->
+          <button onclick="handleLogout()" class="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-lg text-xs font-medium transition">
+            <i class="fa-solid fa-arrow-right-from-bracket mr-1"></i>登出
           </button>
         </div>
       </div>
     </header>
 
-    <!-- ================= 2A. 前台資料區 (Data Portal) ================= -->
-    <main id="portal-section" class="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-      <!-- 左側：月份與資料夾分類選單 -->
-      <aside class="lg:col-span-3 space-y-4">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="font-bold text-slate-800 text-sm">📅 資料夾分類檢索</h3>
-            <span id="visible-count-badge" class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold"></span>
-          </div>
-
-          <!-- 月份選擇 -->
-          <div class="mb-3">
-            <label class="text-xs text-slate-500 block mb-1">選擇月份</label>
-            <select id="folder-month-filter" onchange="renderFileList()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 bg-slate-50 font-medium">
-              <option value="ALL">全部月份</option>
-              <option value="2025-05" selected>2025年 05月 (本月最新)</option>
-              <option value="2025-04">2025年 04月 (歷史資料)</option>
-            </select>
-          </div>
-
-          <!-- 資料分類標籤 (動態由 categoriesDB 產生) -->
-          <div class="mb-4">
-            <label class="text-xs text-slate-500 block mb-1">資料夾名稱</label>
-            <div class="flex flex-wrap gap-1.5" id="category-tabs"></div>
+    <!-- 主體內容 -->
+    <main class="max-w-7xl mx-auto px-4 py-6">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <!-- 左側：月份與資料夾分類篩選 -->
+        <aside class="lg:col-span-1 space-y-4">
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center justify-between">
+              <span><i class="fa-regular fa-folder-open mr-1"></i> 資料分類目錄</span>
+            </h3>
+            <div id="category-list" class="space-y-1.5">
+              <!-- 動態生成分類資料夾 -->
+            </div>
           </div>
 
           <!-- 檔案清單 -->
-          <div class="border-t border-slate-100 pt-3">
-            <p class="text-xs text-slate-400 mb-2">可查閱的資料列表：</p>
-            <div id="file-list-container" class="space-y-2 max-h-[52vh] overflow-y-auto pr-1"></div>
-          </div>
-        </div>
-      </aside>
-
-      <!-- 右側：資料內容檢視器 -->
-      <section class="lg:col-span-9 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
-
-        <!-- 檔案標題列 -->
-        <div class="p-4 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 id="doc-title" class="text-base sm:text-lg font-bold text-slate-800">請從左側選擇資料</h2>
-            <p id="doc-meta" class="text-xs text-slate-500 mt-0.5"></p>
-          </div>
-          <div id="doc-permission-tag" class="text-xs font-semibold px-2.5 py-1 rounded-full"></div>
-        </div>
-
-        <!-- 試算表工具列 (支援快速視野按鈕：只看本所 / 只看本人) -->
-        <div id="excel-toolbar" class="p-3 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="font-semibold text-slate-600">🔍 全表搜尋：</span>
-            <input id="excel-search" oninput="renderExcelTable()" type="text" placeholder="輸入關鍵字快速定位..."
-              class="border border-slate-300 rounded px-2.5 py-1.5 w-44 sm:w-56 focus:outline-none focus:border-blue-600">
-
-            <!-- 快捷視野按鈕 (新功能) -->
-            <div class="flex items-center gap-1.5 border-l border-slate-200 pl-2">
-              <button id="quick-branch-btn" onclick="toggleQuickBranchView()"
-                class="px-2.5 py-1.5 rounded font-medium border border-slate-300 bg-slate-50 text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition">
-                📍 只看本所 (<span id="quick-branch-name"></span>)
-              </button>
-              <button id="quick-self-btn" onclick="toggleQuickSelfView()"
-                class="px-2.5 py-1.5 rounded font-medium border border-slate-300 bg-slate-50 text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition">
-                👤 只看本人
-              </button>
-            </div>
-
-            <span id="active-filter-hint" class="text-blue-600 font-semibold hidden"></span>
-          </div>
-
-          <button onclick="resetExcelFilters()" class="text-slate-600 hover:text-blue-600 border border-slate-300 px-3 py-1.5 rounded bg-slate-50 font-medium transition">
-            🔄 重設所有篩選
-          </button>
-        </div>
-
-        <!-- 內容顯示區 -->
-        <div class="p-4 flex-1">
-          <!-- 表格容器 (含置底動態加總／平均列) -->
-          <div id="excel-viewer" class="excel-table-container border border-slate-200 rounded-lg">
-            <table class="w-full text-left border-collapse excel-table text-xs sm:text-sm">
-              <thead id="excel-thead"></thead>
-              <tbody id="excel-tbody" class="divide-y divide-slate-200"></tbody>
-              <tfoot id="excel-tfoot"></tfoot>
-            </table>
-          </div>
-          <div id="excel-summary-bar" class="mt-2 flex flex-wrap items-center justify-between text-xs text-slate-500 px-1 gap-2">
-            <span id="excel-row-count" class="font-semibold text-slate-700">共 0 筆資料</span>
-            <span>💡 提示：點擊表頭右側「<strong class="text-slate-700">▼</strong>」可多選篩選/排序；表格最下方提供自動合計與平均值</span>
-          </div>
-
-          <!-- 文件檢視器容器 -->
-          <div id="word-viewer" class="hidden prose max-w-none bg-slate-50 p-6 rounded-lg border border-slate-200 min-h-[45vh]"></div>
-        </div>
-      </section>
-    </main>
-
-    <!-- ================= 2B. 管理員後台區 (4 大獨立分頁) ================= -->
-    <main id="admin-section" class="hidden flex-1 max-w-7xl w-full mx-auto p-4 space-y-4">
-
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div class="bg-slate-800 text-white px-5 py-4 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 class="font-bold text-base sm:text-lg flex items-center gap-2">
-              ⚙️ 管理員後台控制中心
-              <span class="text-xs bg-amber-500 text-slate-950 px-2 py-0.5 rounded font-bold">管理員免浮水印</span>
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+              <i class="fa-regular fa-file-lines mr-1"></i> 目錄檔案清單
             </h3>
-            <p class="text-xs text-slate-300 mt-0.5">提供檔案上傳/覆蓋更新、資料夾分類維護、全員密碼明文查詢（防忘記密碼）、以及員工查閱稽核</p>
-          </div>
-        </div>
-
-        <!-- 4 大項目分頁籤 -->
-        <div class="flex border-b border-slate-200 bg-slate-50 px-4 pt-2 gap-2 overflow-x-auto">
-          <button onclick="switchAdminTab('files')" id="admin-tab-btn-files"
-            class="px-4 py-2.5 text-xs sm:text-sm font-bold rounded-t-lg border-b-2 border-blue-600 bg-white text-blue-700 whitespace-nowrap">
-            📤 1. 檔案上傳與更新
-          </button>
-          <button onclick="switchAdminTab('folders')" id="admin-tab-btn-folders"
-            class="px-4 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap">
-            📁 2. 資料夾分類管理
-          </button>
-          <button onclick="switchAdminTab('users')" id="admin-tab-btn-users"
-            class="px-4 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap">
-            👥 3. 員工帳號與密碼管理 (可查全員密碼)
-          </button>
-          <button onclick="switchAdminTab('audit')" id="admin-tab-btn-audit"
-            class="px-4 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap">
-            📊 4. 查閱與未讀稽核紀錄
-          </button>
-        </div>
-      </div>
-
-      <!-- ================= 分頁 1：檔案上傳與覆蓋更新管理 ================= -->
-      <div id="admin-tab-files" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <!-- 左側：上傳新檔案 -->
-        <div class="lg:col-span-5 bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-          <h4 class="font-bold text-slate-800 border-b pb-2 text-sm sm:text-base">📤 上傳新資料檔案 (支援 .xlsx / .xls)</h4>
-
-          <div class="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">歸屬月份</label>
-              <select id="upload-month" class="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
-                <option value="2025-05">2025年 05月</option>
-                <option value="2025-04">2025年 04月</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">歸屬資料夾分類</label>
-              <select id="upload-category" class="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"></select>
+            <div id="file-list" class="space-y-1.5 max-h-[360px] overflow-y-auto custom-scrollbar">
+              <!-- 動態生成檔案列表 -->
             </div>
           </div>
+        </aside>
 
-          <!-- 原生 Excel 支援上傳區 -->
-          <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">選擇檔案 (支援 Excel .xlsx / .xls / .csv / .docx)</label>
-            <label class="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer bg-blue-50/40 hover:bg-blue-50 transition p-3 text-center">
-              <span class="text-2xl mb-1">📂</span>
-              <span id="upload-file-label" class="text-xs font-semibold text-blue-700">點擊此處從電腦選擇實體 Excel 檔</span>
-              <span class="text-[11px] text-slate-400 mt-0.5">系統自動解析表格資料與數值</span>
-              <input id="upload-file-input" type="file" accept=".xlsx,.xls,.csv,.doc,.docx,.pdf" class="hidden" onchange="handleRealExcelUpload(event)">
-            </label>
-          </div>
+        <!-- 右側：報表展示與類 Excel 多重篩選核心區 -->
+        <section class="lg:col-span-3 space-y-4">
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <!-- 報表標題與快速定位按鈕 -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <h3 id="current-file-title" class="text-lg font-black text-slate-800">請從左側點選檔案</h3>
+                <p id="current-file-meta" class="text-xs text-slate-400 mt-0.5">最後更新時間：--</p>
+              </div>
 
-          <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">資料顯示名稱</label>
-            <input id="upload-title" type="text" placeholder="例如：05月全區最新領牌實績表"
-              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-          </div>
+              <!-- 快捷視野按鈕 (只看本所 / 只看本人) -->
+              <div class="flex items-center space-x-2">
+                <button onclick="filterByMyBranch()" class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg border border-red-200 transition">
+                  <i class="fa-solid fa-location-dot mr-1"></i>只看本所
+                </button>
+                <button onclick="filterByMe()" class="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg border border-blue-200 transition">
+                  <i class="fa-solid fa-user mr-1"></i>只看本人
+                </button>
+                <button onclick="resetExcelFilters()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium rounded-lg transition">
+                  <i class="fa-solid fa-rotate-left mr-1"></i>重設篩選
+                </button>
+              </div>
+            </div>
 
-          <!-- 閱讀權限設定 (三種業務群組勾選) -->
-          <div class="bg-slate-50 p-3.5 rounded-lg border border-slate-200">
-            <label class="block text-xs font-bold text-slate-700 mb-2">🔐 設定閱讀權限：</label>
-            <div class="flex flex-wrap items-center gap-4 text-sm">
-              <label class="inline-flex items-center space-x-2 cursor-pointer">
-                <input id="perm-manager" type="checkbox" checked class="rounded text-blue-600 w-4 h-4">
-                <span class="text-slate-700 font-medium">👔 所長</span>
-              </label>
-              <label class="inline-flex items-center space-x-2 cursor-pointer">
-                <input id="perm-deputy" type="checkbox" checked class="rounded text-blue-600 w-4 h-4">
-                <span class="text-slate-700 font-medium">📋 副所長</span>
-              </label>
-              <label class="inline-flex items-center space-x-2 cursor-pointer">
-                <input id="perm-sales" type="checkbox" checked class="rounded text-blue-600 w-4 h-4">
-                <span class="text-slate-700 font-medium">🚗 業代</span>
-              </label>
+            <!-- 多工作表 (Sheet) 切換標籤列 -->
+            <div id="sheet-tabs-bar" class="hidden flex items-center space-x-2 pt-3 border-b border-slate-100 overflow-x-auto text-xs font-medium text-slate-600">
+              <!-- 動態渲染工作表分頁標籤 -->
+            </div>
+
+            <!-- 類 Excel 表格容器 -->
+            <div class="relative overflow-x-auto custom-scrollbar border border-slate-100 rounded-lg mt-3 max-h-[620px]">
+              <table id="excel-table" class="w-full text-left border-collapse text-xs">
+                <!-- 動態注入表頭與資料列 -->
+              </table>
+            </div>
+
+            <div class="flex items-center justify-between pt-3 text-[11px] text-slate-400">
+              <span id="table-row-count">顯示 0 / 0 筆資料</span>
+              <span>💡 提示：點擊各表頭右側「▼」即可多選篩選與升降冪排序</span>
             </div>
           </div>
-
-          <button onclick="handleConfirmUpload()"
-            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg text-sm shadow transition">
-            ＋ 確認發布至前台資料區
-          </button>
-        </div>
-
-        <!-- 右側：已上傳檔案管理與「一鍵覆蓋更新數據」 -->
-        <div class="lg:col-span-7 bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col">
-          <div class="flex items-center justify-between border-b pb-2 mb-3">
-            <h4 class="font-bold text-slate-800 text-sm sm:text-base">📋 線上檔案管理（支援一鍵覆蓋更新數據）</h4>
-            <span id="admin-file-count" class="text-xs bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full font-semibold"></span>
-          </div>
-          <div id="admin-file-list" class="space-y-2.5 overflow-y-auto max-h-[55vh] pr-1"></div>
-        </div>
+        </section>
       </div>
-
-      <!-- ================= 分頁 2：資料夾分類管理 ================= -->
-      <div id="admin-tab-folders" class="hidden bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-5">
-        <div class="border-b pb-3">
-          <h4 class="font-bold text-slate-800 text-base">📁 資料夾分類名稱管理</h4>
-          <p class="text-xs text-slate-500 mt-0.5">新增、修改或刪除資料夾分類，更新後所有檔案與前台導覽將即時連動同步。</p>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
-          <span class="text-xs font-bold text-slate-700">＋ 新增資料夾分類：</span>
-          <input id="new-category-input" type="text" placeholder="請輸入分類名稱（例如：保險與配件戰報）"
-            class="flex-1 min-w-[220px] border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
-          <button onclick="handleAddCategory()"
-            class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition">
-            新增分類
-          </button>
-        </div>
-
-        <div>
-          <p class="text-xs font-bold text-slate-600 mb-2">現有資料夾分類清單：</p>
-          <div id="admin-category-list" class="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden"></div>
-        </div>
-      </div>
-
-      <!-- ================= 分頁 3：員工帳號匯入與「全員密碼明文查詢」 ================= -->
-      <div id="admin-tab-users" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <!-- 左側：範例檔與匯入 -->
-        <div class="lg:col-span-5 bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-          <h4 class="font-bold text-slate-800 border-b pb-2 text-sm sm:text-base">📥 員工帳號批次匯入</h4>
-
-          <div class="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2">
-            <div class="text-xs font-bold text-blue-900">下載匯入標準範例檔</div>
-            <p class="text-xs text-blue-700 leading-relaxed">
-              標準欄位：<code class="bg-white px-1 py-0.5 rounded border">工號, 姓名, 營業所, 密碼, 群組</code>。<br>
-              群組包含：<strong>業代、副所長、所長、管理員</strong>。
-            </p>
-            <button onclick="downloadSampleEmployeeCSV()"
-              class="w-full bg-white hover:bg-blue-100 text-blue-700 border border-blue-300 font-bold py-2 rounded-lg text-xs shadow-sm transition flex items-center justify-center gap-1.5">
-              <span>📄</span> 下載員工帳號匯入範例檔 (.csv)
-            </button>
-          </div>
-
-          <div class="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3.5 space-y-2">
-            <div class="text-xs font-bold text-emerald-900">選擇員工名單檔案上傳</div>
-            <label class="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-emerald-400 rounded-lg cursor-pointer bg-white hover:bg-emerald-50 transition p-2 text-center">
-              <span class="text-xl">📤</span>
-              <span id="user-csv-file-label" class="text-xs font-semibold text-emerald-700 mt-0.5">點擊選擇 .csv 名單上傳</span>
-              <input id="user-csv-file-input" type="file" accept=".csv,.txt" class="hidden" onchange="handleEmployeeFileUpload(event)">
-            </label>
-          </div>
-
-          <div class="pt-2 border-t border-slate-200">
-            <label class="block text-xs font-semibold text-slate-600 mb-1">或直接編輯文字名單匯入：</label>
-            <textarea id="batch-user-input" rows="3"
-              class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-mono"
-              placeholder="工號,姓名,營業所,密碼,群組">S005,張家豪,新竹所,1234,業代
-D003,吳志偉,桃園所,1234,副所長</textarea>
-            <button onclick="handleBatchImportUsers()"
-              class="mt-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg text-sm shadow transition">
-              📥 執行匯入 / 更新員工帳號
-            </button>
-          </div>
-        </div>
-
-        <!-- 右側：員工帳號與「全員目前密碼可查」清單 -->
-        <div class="lg:col-span-7 bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col">
-          <div class="flex flex-wrap items-center justify-between border-b pb-2 mb-3 gap-2">
-            <div>
-              <h4 class="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-1.5">
-                👥 員工帳號與密碼清單
-                <span class="text-[11px] bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded border border-amber-300">防忘記密碼：管理員可查全員目前密碼</span>
-              </h4>
-            </div>
-            <div class="flex items-center gap-2 text-xs">
-              <button onclick="togglePasswordVisibilityAll()" id="btn-toggle-all-pwd"
-                class="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-medium">
-                👁️ 顯示所有明文密碼
-              </button>
-              <select id="admin-user-role-filter" onchange="renderAdminUsers()" class="border border-slate-300 rounded px-2 py-1 bg-slate-50">
-                <option value="ALL">全部角色</option>
-                <option value="所長">👔 所長</option>
-                <option value="副所長">📋 副所長</option>
-                <option value="業代">🚗 業代</option>
-                <option value="管理員">🛠️ 管理員</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="overflow-x-auto max-h-[55vh] border border-slate-200 rounded-lg">
-            <table class="w-full text-left text-xs">
-              <thead class="bg-slate-100 text-slate-600 sticky top-0">
-                <tr>
-                  <th class="p-2.5">工號</th>
-                  <th class="p-2.5">姓名</th>
-                  <th class="p-2.5">營業所</th>
-                  <th class="p-2.5">群組角色</th>
-                  <th class="p-2.5 text-blue-700 font-bold bg-blue-50/60">目前密碼 (同仁忘記可查)</th>
-                  <th class="p-2.5 text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody id="admin-user-tbody" class="divide-y divide-slate-200"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================= 分頁 4：查閱與未讀稽核紀錄 ================= -->
-      <div id="admin-tab-audit" class="hidden bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between border-b pb-3 gap-2">
-          <div>
-            <h4 class="font-bold text-slate-800 text-base">📊 外勤同仁查閱紀錄與未讀追蹤</h4>
-            <p class="text-xs text-slate-500 mt-0.5">即時統計每位主管與業代的登入狀態，掌握哪些人員尚未查看最新實績資料。</p>
-          </div>
-          <button onclick="renderAuditTable()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold border">
-            🔄 重新整理紀錄
-          </button>
-        </div>
-
-        <div class="overflow-x-auto max-h-[55vh] border border-slate-200 rounded-lg">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-slate-100 text-slate-600 sticky top-0">
-              <tr>
-                <th class="p-2.5">工號</th>
-                <th class="p-2.5">姓名</th>
-                <th class="p-2.5">營業所</th>
-                <th class="p-2.5">職級群組</th>
-                <th class="p-2.5">最後登入時間</th>
-                <th class="p-2.5">本月累計查閱次數</th>
-                <th class="p-2.5">最新實績表 (F01) 狀態</th>
-              </tr>
-            </thead>
-            <tbody id="audit-tbody" class="divide-y divide-slate-200"></tbody>
-          </table>
-        </div>
-      </div>
-
     </main>
   </div>
 
-  <!-- ================= 3. 自助修改密碼彈窗 (Modal) ================= -->
-  <div id="pwd-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 border border-slate-200 space-y-4" onclick="event.stopPropagation()">
-      <div class="flex items-center justify-between border-b pb-2">
-        <h3 class="font-bold text-slate-800 text-base">🔑 修改個人密碼</h3>
-        <button onclick="closeChangePasswordModal()" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+  <!-- ==================== 3. 管理員後台 (四個清晰大分頁) ==================== -->
+  <div id="view-admin" class="hidden min-h-screen pb-16">
+    <!-- 後台導覽列 -->
+    <header class="bg-slate-900 text-white sticky top-0 z-30 shadow-md">
+      <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <span class="w-8 h-8 bg-amber-500 text-slate-900 rounded-lg flex items-center justify-center font-bold text-sm">後台</span>
+          <h2 class="font-bold text-base">桃苗汽車實績與戰情查詢系統 ‧ 後台主控台</h2>
+        </div>
+        <div class="flex items-center space-x-3">
+          <button onclick="exportFullDatabaseJson()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 rounded-lg text-xs font-medium transition">
+            <i class="fa-solid fa-download mr-1"></i>備份資料庫
+          </button>
+          <button onclick="switchView('portal')" class="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition">
+            <i class="fa-solid fa-arrow-left mr-1.5"></i>回前台資料區
+          </button>
+        </div>
       </div>
-      <div id="pwd-modal-error" class="hidden text-xs text-rose-600 bg-rose-50 p-2 rounded border border-rose-200"></div>
-      <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">請輸入新密碼</label>
-        <input id="modal-new-pwd" type="text" placeholder="例如：新密碼6碼以上"
-          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-blue-600 focus:outline-none">
-        <p class="text-[11px] text-slate-400 mt-1">若忘記密碼，可隨時向系統管理員詢問查詢。</p>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+      <!-- 後台大項目分頁按鈕籤 -->
+      <div class="flex border-b border-slate-200 bg-white rounded-t-xl px-4 pt-2 space-x-2">
+        <button id="tab-btn-files" onclick="switchAdminTab('files')" class="px-4 py-2.5 text-xs font-bold border-b-2 border-red-600 text-red-600 flex items-center space-x-1.5">
+          <i class="fa-solid fa-cloud-arrow-up"></i><span>1. 檔案上傳與管理</span>
+        </button>
+        <button id="tab-btn-folders" onclick="switchAdminTab('folders')" class="px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-1.5">
+          <i class="fa-solid fa-folder-tree"></i><span>2. 資料夾分類與歸屬月份</span>
+        </button>
+        <button id="tab-btn-users" onclick="switchAdminTab('users')" class="px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-1.5">
+          <i class="fa-solid fa-users-gear"></i><span>3. 員工帳號與管理 (含密碼)</span>
+        </button>
+        <button id="tab-btn-audit" onclick="switchAdminTab('audit')" class="px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-1.5">
+          <i class="fa-solid fa-clipboard-check"></i><span>4. 查閱與未讀稽核紀錄</span>
+        </button>
       </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <button onclick="closeChangePasswordModal()" class="px-4 py-2 rounded-lg text-xs font-semibold border border-slate-300 text-slate-600 hover:bg-slate-50">取消</button>
-        <button onclick="handleSaveNewPassword()" class="px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow">確認變更</button>
+
+      <div class="bg-white border-x border-b border-slate-200 rounded-b-xl p-6 shadow-sm min-h-[560px]">
+
+        <!-- 分頁 1：檔案上傳與權限管理 -->
+        <div id="admin-tab-files" class="space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- 左側上傳面板 -->
+            <div class="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
+              <h4 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-file-arrow-up mr-1 text-red-600"></i> 上傳新戰情報表</h4>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">選擇電腦檔案 (.xlsx / .csv)</label>
+                <input type="file" id="upload-file-input" accept=".xlsx, .xls, .csv" class="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-red-50 file:text-red-700 hover:file:bg-red-100">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">檔案自訂名稱</label>
+                <input type="text" id="upload-file-name" placeholder="例: 11月第2週全區競賽實績表" class="w-full px-3 py-2 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-red-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">歸屬分類資料夾</label>
+                <select id="upload-file-category" class="w-full px-3 py-2 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-red-500">
+                  <!-- 動態載入分類選項 -->
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1.5">閱讀權限設定 (未勾選群組完全不可見)</label>
+                <div class="space-y-1.5 text-xs text-slate-700">
+                  <label class="flex items-center space-x-2"><input type="checkbox" id="perm-admin" checked disabled class="rounded text-red-600"> <span>管理員 (強制預設可見)</span></label>
+                  <label class="flex items-center space-x-2"><input type="checkbox" id="perm-manager" checked class="rounded text-red-600"> <span>所長</span></label>
+                  <label class="flex items-center space-x-2"><input type="checkbox" id="perm-deputy" checked class="rounded text-red-600"> <span>副所長</span></label>
+                  <label class="flex items-center space-x-2"><input type="checkbox" id="perm-sales" checked class="rounded text-red-600"> <span>業代</span></label>
+                </div>
+              </div>
+              <button onclick="handleFileUpload()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2 rounded text-xs shadow transition">確認發布檔案</button>
+            </div>
+
+            <!-- 右側已上傳清單 -->
+            <div class="md:col-span-2 space-y-3">
+              <h4 class="text-sm font-bold text-slate-700 flex items-center justify-between">
+                <span><i class="fa-solid fa-list-check mr-1 text-slate-500"></i> 已上傳發布檔案清單</span>
+                <span class="text-xs font-normal text-slate-400">支援即時更換權限、覆蓋數據或刪除</span>
+              </h4>
+              <div id="admin-file-table" class="space-y-2">
+                <!-- 動態注入已上傳檔案卡片 -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分頁 2：資料夾分類與歸屬月份管理 (新增、編輯名稱、刪除) -->
+        <div id="admin-tab-folders" class="hidden space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- 左側新增分類 -->
+            <div class="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-3">
+              <h4 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-folder-plus mr-1 text-red-600"></i> 新增分類目錄</h4>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">歸屬月份 (例: 2024-11)</label>
+                <input type="month" id="new-folder-month" class="w-full px-3 py-2 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-red-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">分類資料夾名稱</label>
+                <input type="text" id="new-folder-name" placeholder="例: 11月競賽與重點車實績" class="w-full px-3 py-2 text-xs rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-red-500">
+              </div>
+              <button onclick="handleCreateFolder()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-medium py-2 rounded text-xs shadow transition">確認新增分類</button>
+            </div>
+
+            <!-- 右側現有分類維護列表 (編輯名稱與刪除) -->
+            <div class="md:col-span-2 space-y-3">
+              <h4 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-list mr-1 text-slate-500"></i> 現有分類維護（可直接修改名稱、歸屬月份與刪除）</h4>
+              <div id="admin-folder-list" class="space-y-2">
+                <!-- 動態渲染資料夾分類卡片 -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分頁 3：員工帳號與管理 (智慧增量匯入、密碼查詢與刪除) -->
+        <div id="admin-tab-users" class="hidden space-y-6">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-amber-50 border border-amber-200 p-4 rounded-xl text-xs text-amber-900">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-circle-info text-base text-amber-600"></i>
+              <div>
+                <p class="font-bold">智慧增量/更新模式說明：</p>
+                <p class="text-amber-800">下次如果只要更新特定職級（例如單獨匯入「所長」名單），系統會自動進行比對新增或更新，**並保留現有已匯入的業代、副所長與管理員名單**！</p>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2 shrink-0">
+              <button onclick="downloadUserCsvTemplate()" class="px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 rounded font-semibold transition">
+                <i class="fa-solid fa-file-csv mr-1"></i>下載匯入範本 (.csv)
+              </button>
+              <label class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded font-semibold cursor-pointer transition">
+                <i class="fa-solid fa-file-import mr-1"></i>上傳 CSV 增量更新名單
+                <input type="file" id="user-csv-file-input" accept=".csv" class="hidden" onchange="handleUserCsvUpload(event)">
+              </label>
+            </div>
+          </div>
+
+          <!-- 人員清單總表與全員密碼可查 -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <h4 class="text-sm font-bold text-slate-700">
+                <i class="fa-solid fa-users mr-1 text-slate-500"></i> 目前全員名單與密碼一覽表
+              </h4>
+              <div class="flex items-center space-x-2">
+                <button onclick="toggleShowAllPasswords()" id="btn-toggle-pwd" class="text-xs text-slate-600 hover:text-slate-800 border border-slate-200 px-2.5 py-1 rounded bg-slate-50">
+                  <i class="fa-regular fa-eye mr-1"></i>顯示全員明文密碼
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-lg max-h-[460px] custom-scrollbar">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-100 text-slate-600 uppercase font-semibold sticky top-0">
+                  <tr>
+                    <th class="p-3 border-b">工號</th>
+                    <th class="p-3 border-b">姓名</th>
+                    <th class="p-3 border-b">群組角色</th>
+                    <th class="p-3 border-b">所屬營業所</th>
+                    <th class="p-3 border-b">目前密碼 (同仁忘記可查)</th>
+                    <th class="p-3 border-b text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-user-tbody" class="divide-y divide-slate-100">
+                  <!-- 動態載入員工帳號 -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分頁 4：查閱與未讀稽核紀錄 -->
+        <div id="admin-tab-audit" class="hidden space-y-4">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-chart-pie mr-1 text-slate-500"></i> 各同仁點閱狀態與未讀追蹤</h4>
+            <span class="text-xs text-slate-400">即時追蹤同仁最後登入時間與公告實績表查閱狀況</span>
+          </div>
+          <div class="overflow-x-auto border border-slate-200 rounded-lg max-h-[480px] custom-scrollbar">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-100 text-slate-600 font-semibold sticky top-0">
+                <tr>
+                  <th class="p-3 border-b">工號 / 姓名</th>
+                  <th class="p-3 border-b">群組角色</th>
+                  <th class="p-3 border-b">營業所</th>
+                  <th class="p-3 border-b">最後登入時間</th>
+                  <th class="p-3 border-b">累計查閱次數</th>
+                  <th class="p-3 border-b">最新 11 月實績表查閱狀態</th>
+                </tr>
+              </thead>
+              <tbody id="admin-audit-tbody" class="divide-y divide-slate-100">
+                <!-- 動態載入查閱紀錄 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- 自助修改密碼 Modal -->
+  <div id="modal-change-pwd" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-sm w-full p-6 space-y-4 shadow-xl">
+      <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-key mr-1.5 text-red-600"></i> 自助變更密碼</h3>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-600 mb-1">請輸入新密碼</label>
+          <input type="password" id="input-new-pwd" class="w-full px-3 py-2 border border-slate-200 rounded focus:ring-1 focus:ring-red-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-slate-600 mb-1">再次確認新密碼</label>
+          <input type="password" id="input-confirm-pwd" class="w-full px-3 py-2 border border-slate-200 rounded focus:ring-1 focus:ring-red-500 focus:outline-none">
+        </div>
+      </div>
+      <div class="flex justify-end space-x-2 pt-2 text-xs">
+        <button onclick="closeChangePwdModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded">取消</button>
+        <button onclick="submitChangePassword()" class="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded font-medium">確認修改</button>
       </div>
     </div>
   </div>
 
-  <!-- ================= 系統核心互動腳本 ================= -->
+  <!-- ==================== 系統核心邏輯 JavaScript ==================== -->
   <script>
-    // 1. 預設員工資料庫 (含明文密碼，供管理員查詢防忘記)
-    let usersDB = [
-      { id: 'ADMIN01', name: '王總管', branch: '本部', pwd: '1234', role: '管理員', lastLogin: '2025/05/15 15:40', viewCount: 42, hasReadLatest: true },
-      { id: 'M001', name: '陳志明', branch: '中壢所', pwd: '1234', role: '所長', lastLogin: '2025/05/15 14:10', viewCount: 28, hasReadLatest: true },
-      { id: 'M002', name: '林淑芬', branch: '桃園所', pwd: '1234', role: '所長', lastLogin: '2025/05/14 18:20', viewCount: 19, hasReadLatest: true },
-      { id: 'D001', name: '張晉嘉', branch: '中壢所', pwd: '1234', role: '副所長', lastLogin: '2025/05/15 11:30', viewCount: 16, hasReadLatest: true },
-      { id: 'D002', name: '周建宏', branch: '竹北所', pwd: '1234', role: '副所長', lastLogin: '2025/05/13 09:15', viewCount: 8, hasReadLatest: false },
-      { id: 'S001', name: '林志豪', branch: '中壢所', pwd: '1234', role: '業代', lastLogin: '2025/05/15 15:05', viewCount: 35, hasReadLatest: true },
-      { id: 'S002', name: '陳冠宇', branch: '桃園所', pwd: '1234', role: '業代', lastLogin: '2025/05/15 13:22', viewCount: 22, hasReadLatest: true },
-      { id: 'S003', name: '黃雅婷', branch: '新竹所', pwd: '1234', role: '業代', lastLogin: '2025/05/12 16:40', viewCount: 5, hasReadLatest: false }
-    ];
-
-    // 2. 資料夾分類資料庫
-    let categoriesDB = ['販賣實績表', '所長經營戰報', '獎勵辦法與公告'];
-
-    // 3. 模擬業代實績資料列 (通用客觀呈現，無差額與 TOP3 標記)
-    const salesPerformanceRows = [
-      { 工號: 'S001', 姓名: '林志豪', 營業所: '中壢所', 職級: '資深業代', 本月目標: 8, 領牌實績: 10, 重點車系台數: 6, 達成率: 125.0, 狀態: '已達標' },
-      { 工號: 'S002', 姓名: '陳冠宇', 營業所: '桃園所', 職級: '主任業代', 本月目標: 10, 領牌實績: 11, 重點車系台數: 7, 達成率: 110.0, 狀態: '已達標' },
-      { 工號: 'S003', 姓名: '黃雅婷', 營業所: '新竹所', 職級: '銷售顧問', 本月目標: 7, 領牌實績: 6, 重點車系台數: 4, 達成率: 85.7, 狀態: '衝刺中' },
-      { 工號: 'S006', 姓名: '李宗翰', 營業所: '竹北所', 職級: '資深業代', 本月目標: 9, 領牌實績: 12, 重點車系台數: 8, 達成率: 133.3, 狀態: '已達標' },
-      { 工號: 'S007', 姓名: '吳佩珊', 營業所: '苗栗所', 職級: '銷售顧問', 本月目標: 6, 領牌實績: 4, 重點車系台數: 2, 達成率: 66.7, 狀態: '待加強' },
-      { 工號: 'S008', 姓名: '蔡承恩', 營業所: '桃園所', 職級: '銷售顧問', 本月目標: 6, 領牌實績: 6, 重點車系台數: 3, 達成率: 100.0, 狀態: '已達標' },
-      { 工號: 'S009', 姓名: '楊家瑋', 營業所: '中壢所', 職級: '主任業代', 本月目標: 10, 領牌實績: 9, 重點車系台數: 5, 達成率: 90.0, 狀態: '衝刺中' },
-      { 工號: 'S010', 姓名: '許瑋倫', 營業所: '新竹所', 職級: '資深業代', 本月目標: 8, 領牌實績: 9, 重點車系台數: 6, 達成率: 112.5, 狀態: '已達標' },
-      { 工號: 'S011', 姓名: '鄭宇軒', 營業所: '頭份所', 職級: '銷售顧問', 本月目標: 5, 領牌實績: 3, 重點車系台數: 1, 達成率: 60.0, 狀態: '待加強' },
-      { 工號: 'S012', 姓名: '謝佳樺', 營業所: '竹北所', 職級: '主任業代', 本月目標: 10, 領牌實績: 13, 重點車系台數: 9, 達成率: 130.0, 狀態: '已達標' },
-      { 工號: 'S013', 姓名: '郭俊宏', 營業所: '中壢所', 職級: '資深業代', 本月目標: 8, 領牌實績: 7, 重點車系台數: 4, 達成率: 87.5, 狀態: '衝刺中' },
-      { 工號: 'S014', 姓名: '洪詩涵', 營業所: '楊梅所', 職級: '銷售顧問', 本月目標: 6, 領牌實績: 7, 重點車系台數: 5, 達成率: 116.7, 狀態: '已達標' }
-    ];
-
-    const branchManagerRows = [
-      { 營業所: '竹北所', 所長: '周所長', 副所長: '周建宏', 編制人數: 24, 本月目標台數: 180, 目前領牌數: 210, 達成率: 116.7, 保險滲透率: '92%' },
-      { 營業所: '桃園所', 所長: '林淑芬', 副所長: '吳志偉', 編制人數: 28, 本月目標台數: 210, 目前領牌數: 225, 達成率: 107.1, 保險滲透率: '89%' },
-      { 營業所: '中壢所', 所長: '陳志明', 副所長: '張晉嘉', 編制人數: 26, 本月目標台數: 195, 目前領牌數: 198, 達成率: 101.5, 保險滲透率: '88%' },
-      { 營業所: '新竹所', 所長: '張所長', 副所長: '林副所', 編制人數: 22, 本月目標台數: 165, 目前領牌數: 158, 達成率: 95.8, 保險滲透率: '85%' },
-      { 營業所: '苗栗所', 所長: '劉建國', 副所長: '陳副所', 編制人數: 16, 本月目標台數: 110, 目前領牌數: 96, 達成率: 87.3, 保險滲透率: '81%' }
-    ];
-
-    // 4. 檔案資料庫
-    let filesDB = [
-      {
-        id: 'F01',
-        month: '2025-05',
-        category: '販賣實績表',
-        title: '05月全區業代即時領牌實績表',
-        type: 'EXCEL',
-        updatedAt: '2025/05/15 14:30',
-        allowedRoles: ['所長', '副所長', '業代'],
-        data: JSON.parse(JSON.stringify(salesPerformanceRows))
-      },
-      {
-        id: 'F02',
-        month: '2025-05',
-        category: '所長經營戰報',
-        title: '05月各營業所達成率與經營戰報',
-        type: 'EXCEL',
-        updatedAt: '2025/05/15 15:00',
-        allowedRoles: ['所長', '副所長'],
-        data: JSON.parse(JSON.stringify(branchManagerRows))
-      },
-      {
-        id: 'F03',
-        month: '2025-05',
-        category: '所長經營戰報',
-        title: '【所長專用】各所毛利結構與所長專案獎金試算',
-        type: 'EXCEL',
-        updatedAt: '2025/05/15 16:00',
-        allowedRoles: ['所長'],
-        data: JSON.parse(JSON.stringify(branchManagerRows))
-      },
-      {
-        id: 'F04',
-        month: '2025-05',
-        category: '獎勵辦法與公告',
-        title: '夏季競賽販賣激勵辦法與規章',
-        type: 'WORD',
-        updatedAt: '2025/05/01 09:00',
-        allowedRoles: ['所長', '副所長', '業代'],
-        content: `
-          <h3 class="text-lg font-bold text-blue-900 mb-2">📌 夏季販賣榮譽競賽激勵規章</h3>
-          <p class="text-sm text-slate-600 mb-4">發文字號：營企字第 11405001 號 ｜ 適用對象：全體營業所（所長、副所長、業代）</p>
-          <div class="space-y-3 text-sm text-slate-700 leading-relaxed">
-            <p><strong>一、競賽期間：</strong>自5月1日起至7月31日止（以監理所實際領牌日為準）。</p>
-            <p><strong>二、加碼激勵：</strong>指定重點車系領牌每台額外核發特別激勵金 NT$ 3,000 元。</p>
-            <p><strong>三、表揚晚宴：</strong>營業所總達成率前三名之所長與副所長受邀出席年度榮譽晚宴。</p>
-          </div>
-        `
-      }
-    ];
-
-    // 狀態變數
+    /* ---------------- 全域響應式資料狀態 ---------------- */
     let currentUser = null;
-    let currentCategory = 'ALL';
-    let currentFile = null;
-    let currentAdminTab = 'files';
-    let showAllPasswords = false;
+    let showAllPlainPasswords = false;
 
-    // 類 Excel 篩選與排序狀態
-    let currentSortKey = '達成率';
-    let currentSortAsc = false;
-    let columnFilters = {};
-    let openMenuColumn = null;
-    let isQuickBranchOnly = false;
-    let isQuickSelfOnly = false;
+    // 初始使用者名單 (含密碼、角色、最後登入時間)
+    let userDatabase = [
+      { empId: 'ADMIN01', name: '王總管', role: 'admin', branch: '總部管理處', password: 'admin', lastLogin: '2024-11-12 10:30', viewCount: 15, readCurrent: true },
+      { empId: 'M001', name: '張所長', role: 'manager', branch: '中壢營業所', password: '1234', lastLogin: '2024-11-12 09:15', viewCount: 8, readCurrent: true },
+      { empId: 'DM001', name: '李副所長', role: 'deputy', branch: '中壢營業所', password: '1234', lastLogin: '2024-11-12 08:50', viewCount: 6, readCurrent: true },
+      { empId: 'S001', name: '陳業代', role: 'sales', branch: '中壢營業所', password: '1234', lastLogin: '2024-11-11 16:40', viewCount: 3, readCurrent: false },
+      { empId: 'S002', name: '林業代', role: 'sales', branch: '桃園營業所', password: '1234', lastLogin: '2024-11-10 14:20', viewCount: 2, readCurrent: false },
+      { empId: 'M002', name: '趙所長', role: 'manager', branch: '新竹營業所', password: '1234', lastLogin: '2024-11-12 08:30', viewCount: 5, readCurrent: true }
+    ];
 
-    // 上傳檔案暫存資料
-    let parsedUploadRows = null;
-    let selectedUploadType = 'EXCEL';
+    // 資料夾分類 (含歸屬月份)
+    let categories = [
+      { id: 'cat-1', month: '2024-11', name: '11月新車實績與競賽' },
+      { id: 'cat-2', month: '2024-11', name: '11月重要業務規章公告' },
+      { id: 'cat-3', month: '2024-10', name: '10月各所結算與獎勵' }
+    ];
 
-    // ================= 登入與浮水印控制 (管理員免浮水印) =================
-    function quickLogin(id) {
-      const u = usersDB.find(x => x.id === id);
-      if (u) {
-        document.getElementById('login-id').value = u.id;
-        document.getElementById('login-pwd').value = u.pwd;
-        handleLogin();
+    // 預設示範實績資料集
+    const defaultSalesData = [
+      { "營業所": "中壢營業所", "職級": "所長", "業代姓名": "張所長", "目標台數": 25, "領牌實績": 28, "達成率": "112.0%", "重點車款台數": 8 },
+      { "營業所": "中壢營業所", "職級": "副所長", "業代姓名": "李副所長", "目標台數": 18, "領牌實績": 19, "達成率": "105.5%", "重點車款台數": 6 },
+      { "營業所": "中壢營業所", "職級": "業代", "業代姓名": "陳業代", "目標台數": 8, "領牌實績": 9, "達成率": "112.5%", "重點車款台數": 3 },
+      { "營業所": "中壢營業所", "職級": "業代", "業代姓名": "黃業代", "目標台數": 8, "領牌實績": 6, "達成率": "75.0%", "重點車款台數": 1 },
+      { "營業所": "桃園營業所", "職級": "業代", "業代姓名": "林業代", "目標台數": 10, "領牌實績": 11, "達成率": "110.0%", "重點車款台數": 4 },
+      { "營業所": "桃園營業所", "職級": "業代", "業代姓名": "吳業代", "目標台數": 8, "領牌實績": 5, "達成率": "62.5%", "重點車款台數": 2 },
+      { "營業所": "新竹營業所", "職級": "所長", "業代姓名": "趙所長", "目標台數": 22, "領牌實績": 24, "達成率": "109.1%", "重點車款台數": 7 }
+    ];
+
+    // 已上傳檔案資料庫
+    let portalFiles = [
+      {
+        id: 'file-1',
+        title: '11月全區新車實績達成進度表 (每日更新)',
+        catId: 'cat-1',
+        updateTime: '2024-11-12 14:00',
+        allowedRoles: ['admin', 'manager', 'deputy', 'sales'],
+        sheets: { '全區實績總表': defaultSalesData }
+      },
+      {
+        id: 'file-2',
+        title: '各營業所主管專用管理損益分析',
+        catId: 'cat-1',
+        updateTime: '2024-11-10 09:30',
+        allowedRoles: ['admin', 'manager'],
+        sheets: { '主管損益': [
+          { "營業所": "中壢營業所", "主管姓名": "張所長", "預算目標": 5000000, "實績金額": 5420000, "達成率": "108.4%" },
+          { "營業所": "桃園營業所", "主管姓名": "錢所長", "預算目標": 4800000, "實績金額": 4600000, "達成率": "95.8%" }
+        ]}
       }
+    ];
+
+    // 目前選中的報表狀態
+    let activeFile = portalFiles[0];
+    let activeSheetName = '全區實績總表';
+    let currentFilteredData = [];
+    let activeFilters = {}; // 各欄位多選勾選條件
+    let currentSort = { col: null, asc: true };
+
+    /* ---------------- 1. 登入與身分切換 ---------------- */
+    function quickFill(id, pwd) {
+      document.getElementById('login-emp-id').value = id;
+      document.getElementById('login-password').value = pwd;
     }
 
     function handleLogin() {
-      const idInput = document.getElementById('login-id').value.trim().toUpperCase();
-      const pwdInput = document.getElementById('login-pwd').value.trim();
-      const user = usersDB.find(u => u.id.toUpperCase() === idInput && u.pwd === pwdInput);
+      const empId = document.getElementById('login-emp-id').value.trim();
+      const pwd = document.getElementById('login-password').value.trim();
 
+      const user = userDatabase.find(u => u.empId.toLowerCase() === empId.toLowerCase() && u.password === pwd);
       if (!user) {
-        document.getElementById('login-error').classList.remove('hidden');
+        alert('❌ 帳號或密碼錯誤，請重新確認！');
         return;
       }
 
-      document.getElementById('login-error').classList.add('hidden');
       currentUser = user;
+      currentUser.lastLogin = new Date().toISOString().replace('T', ' ').substring(0, 16);
+      currentUser.viewCount = (currentUser.viewCount || 0) + 1;
 
-      // 登入時間與次數更新
-      const now = new Date();
-      user.lastLogin = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-      user.viewCount = (user.viewCount || 0) + 1;
+      // 切換視圖
+      document.getElementById('view-login').classList.add('hidden');
+      document.getElementById('view-portal').classList.remove('hidden');
 
-      document.getElementById('login-view').classList.add('hidden');
-      document.getElementById('app-view').classList.remove('hidden');
+      // 更新前台資訊
+      const roleBadge = { admin: '管理員', manager: '所長', deputy: '副所長', sales: '業代' }[currentUser.role];
+      document.getElementById('portal-user-info').innerText = `${currentUser.name} (${currentUser.empId}) ‧ [${roleBadge} - ${currentUser.branch}]`;
 
-      document.getElementById('user-badge').textContent = `${user.id} ${user.name} (${user.branch})`;
-      document.getElementById('user-role-label').textContent = `權限群組：${user.role}`;
-      document.getElementById('quick-branch-name').textContent = user.branch || '本所';
-
-      const adminBtn = document.getElementById('nav-admin-btn');
-      const watermarkDiv = document.getElementById('watermark-layer');
-
-      if (user.role === '管理員') {
-        adminBtn.classList.remove('hidden');
-        watermarkDiv.classList.add('hidden');
-        watermarkDiv.style.backgroundImage = 'none';
+      // 管理員按鈕顯示控制
+      if (currentUser.role === 'admin') {
+        document.getElementById('btn-enter-admin').classList.remove('hidden');
       } else {
-        adminBtn.classList.add('hidden');
-        generateDynamicWatermark(user);
+        document.getElementById('btn-enter-admin').classList.add('hidden');
       }
 
-      renderCategoryTabs();
-      switchMode('portal');
-      renderFileList();
-      renderAdminAll();
+      // 繪製動態浮水印 (管理員與前台同仁皆強制繪製)
+      renderWatermark();
+
+      // 初始化分類與檔案
+      renderCategories();
+      selectCategory('cat-1');
     }
 
     function handleLogout() {
       currentUser = null;
-      document.getElementById('watermark-layer').classList.add('hidden');
-      document.getElementById('app-view').classList.add('hidden');
-      document.getElementById('login-view').classList.remove('hidden');
+      document.getElementById('view-portal').classList.add('hidden');
+      document.getElementById('view-admin').classList.add('hidden');
+      document.getElementById('view-login').classList.remove('hidden');
+      clearWatermark();
     }
 
-    function generateDynamicWatermark(user) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 340;
-      canvas.height = 190;
-      const ctx = canvas.getContext('2d');
-
-      const now = new Date();
-      const timeStr = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.save();
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.rotate((-24 * Math.PI) / 180);
-      ctx.font = 'bold 15px "Noto Sans TC", sans-serif';
-      ctx.fillStyle = 'rgba(30, 41, 59, 0.085)';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${user.id} ${user.name} (${user.role})`, 0, -6);
-      ctx.font = '12px "Noto Sans TC", sans-serif';
-      ctx.fillText(`${user.branch} · ${timeStr}`, 0, 14);
-      ctx.restore();
-
-      const watermarkDiv = document.getElementById('watermark-layer');
-      watermarkDiv.style.backgroundImage = `url(${canvas.toDataURL('image/png')})`;
-      watermarkDiv.classList.remove('hidden');
-    }
-
-    function switchMode(mode) {
-      const portalSec = document.getElementById('portal-section');
-      const adminSec = document.getElementById('admin-section');
-      const portalBtn = document.getElementById('nav-portal-btn');
-      const adminBtn = document.getElementById('nav-admin-btn');
-
-      if (mode === 'admin' && currentUser.role === '管理員') {
-        portalSec.classList.add('hidden');
-        adminSec.classList.remove('hidden');
-        adminBtn.className = 'px-3 py-1.5 rounded-md text-xs sm:text-sm font-bold bg-amber-500 text-slate-950 transition';
-        portalBtn.className = 'px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-300 hover:text-white transition';
-        renderAdminAll();
+    function switchView(view) {
+      if (view === 'admin') {
+        document.getElementById('view-portal').classList.add('hidden');
+        document.getElementById('view-admin').classList.remove('hidden');
+        renderAdminFiles();
+        renderAdminFolders();
+        renderAdminUsers();
+        renderAdminAudit();
       } else {
-        adminSec.classList.add('hidden');
-        portalSec.classList.remove('hidden');
-        portalBtn.className = 'px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium bg-blue-600 text-white transition';
-        if (currentUser.role === '管理員') {
-          adminBtn.className = 'px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-300 hover:text-white transition';
+        document.getElementById('view-admin').classList.add('hidden');
+        document.getElementById('view-portal').classList.remove('hidden');
+      }
+      renderWatermark();
+    }
+
+    /* ---------------- 2. 動態工號浮水印 (防翻拍與外洩) ---------------- */
+    function renderWatermark() {
+      if (!currentUser) return;
+      const canvas = document.getElementById('watermark-layer');
+      const ctx = canvas.getContext('2d');
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
+
+      ctx.clearRect(0, 0, width, height);
+      ctx.font = '15px sans-serif';
+      ctx.fillStyle = '#64748b';
+      ctx.textAlign = 'center';
+
+      const timeStr = new Date().toLocaleDateString('zh-TW');
+      const text = `${currentUser.name} ${currentUser.empId} ‧ 桃苗汽車機密戰情禁止外流 ‧ ${timeStr}`;
+
+      ctx.save();
+      ctx.rotate(-22 * Math.PI / 180);
+      for (let x = -width; x < width * 2; x += 320) {
+        for (let y = -height; y < height * 2; y += 140) {
+          ctx.fillText(text, x, y);
         }
       }
+      ctx.restore();
     }
 
-    // ================= 前台清單與檢視 =================
-    function renderCategoryTabs() {
-      const tabContainer = document.getElementById('category-tabs');
-      const allBtn = `<button onclick="setCategoryFilter('ALL')" class="px-2.5 py-1 rounded text-xs font-semibold transition ${
-        currentCategory === 'ALL' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-      }">全部</button>`;
+    function clearWatermark() {
+      const canvas = document.getElementById('watermark-layer');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    window.addEventListener('resize', () => { if (currentUser) renderWatermark(); });
 
-      const catBtns = categoriesDB.map(cat => `
-        <button onclick="setCategoryFilter('${cat}')" class="px-2.5 py-1 rounded text-xs font-medium transition ${
-          currentCategory === cat ? 'bg-blue-600 text-white font-semibold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-        }">📁 ${cat}</button>
+    /* ---------------- 3. 前台分類與檔案切換 ---------------- */
+    function renderCategories() {
+      const list = document.getElementById('category-list');
+      list.innerHTML = categories.map(cat => `
+        <button onclick="selectCategory('${cat.id}')" id="cat-btn-${cat.id}" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 flex items-center justify-between transition">
+          <span class="truncate"><i class="fa-regular fa-folder mr-1.5 text-amber-500"></i>${cat.name}</span>
+          <span class="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">${cat.month}</span>
+        </button>
       `).join('');
-
-      tabContainer.innerHTML = allBtn + catBtns;
-
-      const uploadCatSelect = document.getElementById('upload-category');
-      if (uploadCatSelect) {
-        uploadCatSelect.innerHTML = categoriesDB.map(c => `<option value="${c}">${c}</option>`).join('');
-      }
     }
 
-    function setCategoryFilter(cat) {
-      currentCategory = cat;
-      renderCategoryTabs();
-      renderFileList();
-    }
-
-    function userCanViewFile(user, file) {
-      if (!user) return false;
-      if (user.role === '管理員') return true;
-      return Array.isArray(file.allowedRoles) && file.allowedRoles.includes(user.role);
-    }
-
-    function renderFileList() {
-      const monthFilter = document.getElementById('folder-month-filter').value;
-      const container = document.getElementById('file-list-container');
-      container.innerHTML = '';
-
-      const accessibleFiles = filesDB.filter(file => {
-        const matchMonth = monthFilter === 'ALL' || file.month === monthFilter;
-        const matchCat = currentCategory === 'ALL' || file.category === currentCategory;
-        return matchMonth && matchCat && userCanViewFile(currentUser, file);
+    function selectCategory(catId) {
+      categories.forEach(c => {
+        const btn = document.getElementById(`cat-btn-${c.id}`);
+        if (btn) btn.className = (c.id === catId)
+          ? "w-full text-left px-3 py-2 rounded-lg text-xs font-bold bg-red-50 text-red-700 flex items-center justify-between border border-red-100"
+          : "w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 flex items-center justify-between";
       });
 
-      document.getElementById('visible-count-badge').textContent = `${accessibleFiles.length} 筆資料`;
+      // 過濾該分類下、當前使用者有權限閱讀的檔案
+      const availableFiles = portalFiles.filter(f => f.catId === catId && f.allowedRoles.includes(currentUser.role));
+      const fileContainer = document.getElementById('file-list');
 
-      if (accessibleFiles.length === 0) {
-        container.innerHTML = `<div class="text-xs text-slate-400 py-6 text-center">無可查閱的資料</div>`;
+      if (availableFiles.length === 0) {
+        fileContainer.innerHTML = `<p class="text-xs text-slate-400 py-3 text-center">此目錄暫無授權檔案</p>`;
         return;
       }
 
-      accessibleFiles.forEach(file => {
-        const isSelected = currentFile && currentFile.id === file.id;
-        const card = document.createElement('div');
-        card.onclick = () => selectFile(file.id);
-        card.className = `p-3 rounded-lg border cursor-pointer transition ${
-          isSelected ? 'bg-blue-50 border-blue-500 shadow-sm' : 'bg-white border-slate-200 hover:bg-slate-50'
-        }`;
+      fileContainer.innerHTML = availableFiles.map(f => `
+        <button onclick="openFile('${f.id}')" class="w-full text-left p-2.5 rounded-lg border border-slate-100 hover:border-red-200 hover:bg-red-50/40 text-xs transition space-y-1">
+          <div class="font-semibold text-slate-800 truncate">${f.title}</div>
+          <div class="text-[10px] text-slate-400">更新: ${f.updateTime}</div>
+        </button>
+      `).join('');
 
-        const roleText = file.allowedRoles.join(' / ');
-        card.innerHTML = `
-          <div class="flex items-start justify-between gap-2">
-            <span class="text-xs font-bold text-slate-800 leading-snug">${file.title}</span>
-          </div>
-          <div class="flex items-center justify-between mt-2">
-            <span class="text-[11px] text-slate-400">${file.month} · ${file.category}</span>
-            <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">${roleText}</span>
-          </div>
-        `;
-        container.appendChild(card);
-      });
-
-      if (!currentFile || !accessibleFiles.some(f => f.id === currentFile.id)) {
-        selectFile(accessibleFiles[0].id);
-      }
+      // 預設開啟第一個檔案
+      openFile(availableFiles[0].id);
     }
 
-    function selectFile(fileId) {
-      const file = filesDB.find(f => f.id === fileId);
-      if (!file) return;
+    function openFile(fileId) {
+      activeFile = portalFiles.find(f => f.id === fileId);
+      if (!activeFile) return;
 
-      const isDifferentFile = !currentFile || currentFile.id !== file.id;
-      currentFile = file;
-      if (isDifferentFile) {
-        columnFilters = {};
-        openMenuColumn = null;
-        isQuickBranchOnly = false;
-        isQuickSelfOnly = false;
-        updateQuickFilterButtons();
-      }
+      document.getElementById('current-file-title').innerText = activeFile.title;
+      document.getElementById('current-file-meta').innerText = `最後更新時間：${activeFile.updateTime}`;
 
-      // 標註為已讀最新實績表
-      if (currentUser && file.id === 'F01') {
-        currentUser.hasReadLatest = true;
-      }
+      // 註記當前使用者已閱
+      currentUser.readCurrent = true;
 
-      renderFileList();
+      // 工作表分頁標籤處理
+      const sheetNames = Object.keys(activeFile.sheets);
+      activeSheetName = sheetNames[0];
 
-      document.getElementById('doc-title').textContent = file.title;
-      document.getElementById('doc-meta').textContent = `月份：${file.month} ｜ 資料夾：${file.category} ｜ 最後更新：${file.updatedAt}`;
-
-      const permTag = document.getElementById('doc-permission-tag');
-      permTag.textContent = `開放群組：${file.allowedRoles.join('、')}`;
-      permTag.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200';
-
-      if (file.type === 'EXCEL') {
-        document.getElementById('excel-toolbar').classList.remove('hidden');
-        document.getElementById('excel-viewer').classList.remove('hidden');
-        document.getElementById('excel-summary-bar').classList.remove('hidden');
-        document.getElementById('word-viewer').classList.add('hidden');
-        renderExcelTable();
+      const tabsBar = document.getElementById('sheet-tabs-bar');
+      if (sheetNames.length > 1) {
+        tabsBar.classList.remove('hidden');
+        tabsBar.innerHTML = sheetNames.map(name => `
+          <button onclick="switchSheet('${name}')" class="px-3 py-1.5 border-b-2 ${name === activeSheetName ? 'border-red-600 text-red-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-800'}">
+            ${name}
+          </button>
+        `).join('');
       } else {
-        document.getElementById('excel-toolbar').classList.add('hidden');
-        document.getElementById('excel-viewer').classList.add('hidden');
-        document.getElementById('excel-summary-bar').classList.add('hidden');
-        const wordViewer = document.getElementById('word-viewer');
-        wordViewer.classList.remove('hidden');
-        wordViewer.innerHTML = file.content;
-      }
-    }
-
-    // ================= 快捷視野按鈕：只看本所 / 只看本人 =================
-    function toggleQuickBranchView() {
-      isQuickBranchOnly = !isQuickBranchOnly;
-      if (isQuickBranchOnly) isQuickSelfOnly = false;
-      updateQuickFilterButtons();
-      renderExcelTable();
-    }
-
-    function toggleQuickSelfView() {
-      isQuickSelfOnly = !isQuickSelfOnly;
-      if (isQuickSelfOnly) isQuickBranchOnly = false;
-      updateQuickFilterButtons();
-      renderExcelTable();
-    }
-
-    function updateQuickFilterButtons() {
-      const bBtn = document.getElementById('quick-branch-btn');
-      const sBtn = document.getElementById('quick-self-btn');
-      if (isQuickBranchOnly) {
-        bBtn.className = 'px-2.5 py-1.5 rounded font-bold border border-blue-600 bg-blue-600 text-white transition';
-      } else {
-        bBtn.className = 'px-2.5 py-1.5 rounded font-medium border border-slate-300 bg-slate-50 text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition';
+        tabsBar.classList.add('hidden');
       }
 
-      if (isQuickSelfOnly) {
-        sBtn.className = 'px-2.5 py-1.5 rounded font-bold border border-blue-600 bg-blue-600 text-white transition';
-      } else {
-        sBtn.className = 'px-2.5 py-1.5 rounded font-medium border border-slate-300 bg-slate-50 text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition';
-      }
+      // 重設篩選
+      activeFilters = {};
+      currentSort = { col: null, asc: true };
+      applyTableFilters();
     }
 
-    // ================= 類 Excel 表格邏輯與動態合計/平均列 =================
-    function resetExcelFilters() {
-      document.getElementById('excel-search').value = '';
-      columnFilters = {};
-      openMenuColumn = null;
-      isQuickBranchOnly = false;
-      isQuickSelfOnly = false;
-      updateQuickFilterButtons();
-      renderExcelTable();
+    function switchSheet(sheetName) {
+      activeSheetName = sheetName;
+      activeFilters = {};
+      applyTableFilters();
     }
 
-    function sortColumnDirect(colKey, isAsc, event) {
-      if (event) event.stopPropagation();
-      currentSortKey = colKey;
-      currentSortAsc = isAsc;
-      openMenuColumn = null;
-      renderExcelTable();
-    }
+    /* ---------------- 4. 類 Excel 全欄位篩選、排序與合計列核心 ---------------- */
+    function applyTableFilters() {
+      const rawData = activeFile.sheets[activeSheetName] || [];
+      const columns = rawData.length > 0 ? Object.keys(rawData[0]) : [];
 
-    function toggleExcelFilterMenu(colKey, event) {
-      event.stopPropagation();
-      openMenuColumn = openMenuColumn === colKey ? null : colKey;
-      renderExcelTable();
-    }
-
-    function closeAllExcelMenus(event) {
-      if (openMenuColumn !== null) {
-        openMenuColumn = null;
-        renderExcelTable();
-      }
-    }
-
-    function toggleFilterOption(colKey, valStr, checked) {
-      if (!currentFile || !currentFile.data) return;
-      const allUniqueVals = [...new Set(currentFile.data.map(r => formatCellVal(colKey, r[colKey])))];
-
-      if (!columnFilters[colKey]) {
-        columnFilters[colKey] = new Set(allUniqueVals);
-      }
-
-      if (checked) {
-        columnFilters[colKey].add(valStr);
-      } else {
-        columnFilters[colKey].delete(valStr);
-      }
-
-      if (columnFilters[colKey].size === allUniqueVals.length) {
-        delete columnFilters[colKey];
-      }
-      renderExcelTable();
-    }
-
-    function selectAllFilterOptions(colKey, selectAll, event) {
-      if (event) event.stopPropagation();
-      if (!currentFile || !currentFile.data) return;
-      if (selectAll) {
-        delete columnFilters[colKey];
-      } else {
-        columnFilters[colKey] = new Set();
-      }
-      renderExcelTable();
-    }
-
-    function filterMenuOptionsBySearch(inputEl) {
-      const q = inputEl.value.trim().toLowerCase();
-      const listContainer = inputEl.closest('.excel-dropdown-menu').querySelector('.filter-options-list');
-      listContainer.querySelectorAll('label').forEach(lbl => {
-        const text = lbl.dataset.val.toLowerCase();
-        lbl.style.display = text.includes(q) ? 'flex' : 'none';
-      });
-    }
-
-    function formatCellVal(col, val) {
-      if (col === '達成率' && typeof val === 'number') {
-        return `${val.toFixed(1)}%`;
-      }
-      return String(val ?? '');
-    }
-
-    function renderExcelTable() {
-      if (!currentFile || currentFile.type !== 'EXCEL') return;
-      const rawData = currentFile.data || [];
-      if (rawData.length === 0) return;
-
-      const keyword = document.getElementById('excel-search').value.trim().toLowerCase();
-      const columns = Object.keys(rawData[0]);
-
-      // 判斷哪些欄位為純數值欄位（可計算合計與平均）
-      const numericCols = columns.filter(col => {
-        return rawData.some(r => typeof r[col] === 'number');
-      });
-
-      const activeFilterCols = Object.keys(columnFilters);
-      const hintEl = document.getElementById('active-filter-hint');
-      const hints = [];
-      if (isQuickBranchOnly) hints.push(`📍 僅限本所 (${currentUser.branch})`);
-      if (isQuickSelfOnly) hints.push(`👤 僅限本人 (${currentUser.name})`);
-      if (activeFilterCols.length > 0) hints.push(`🌪️ 欄位篩選：${activeFilterCols.join('、')}`);
-
-      if (hints.length > 0) {
-        hintEl.textContent = hints.join(' ｜ ');
-        hintEl.classList.remove('hidden');
-      } else {
-        hintEl.classList.add('hidden');
-      }
-
-      // 1. 資料篩選 (包含快捷視野)
-      let filtered = rawData.filter(row => {
-        // 快捷：只看本所
-        if (isQuickBranchOnly && currentUser.branch) {
-          const branchVal = String(row['營業所'] || '');
-          if (!branchVal.includes(currentUser.branch)) return false;
-        }
-
-        // 快捷：只看本人
-        if (isQuickSelfOnly && currentUser) {
-          const idMatch = String(row['工號'] || '').toUpperCase() === currentUser.id.toUpperCase();
-          const nameMatch = String(row['姓名'] || '') === currentUser.name;
-          if (!idMatch && !nameMatch) return false;
-        }
-
-        // 全表關鍵字
-        const matchKeyword = !keyword || columns.some(c => formatCellVal(c, row[c]).toLowerCase().includes(keyword));
-        if (!matchKeyword) return false;
-
-        // 各欄位勾選篩選
-        for (const col of activeFilterCols) {
-          const allowedSet = columnFilters[col];
-          const cellStr = formatCellVal(col, row[col]);
-          if (!allowedSet.has(cellStr)) return false;
+      // 1. 多條件過濾
+      currentFilteredData = rawData.filter(row => {
+        for (const col of columns) {
+          if (activeFilters[col] && activeFilters[col].length > 0) {
+            const val = String(row[col]);
+            if (!activeFilters[col].includes(val)) return false;
+          }
         }
         return true;
       });
 
       // 2. 排序
-      if (currentSortKey && columns.includes(currentSortKey)) {
-        filtered.sort((a, b) => {
-          const valA = a[currentSortKey];
-          const valB = b[currentSortKey];
-          if (typeof valA === 'number' && typeof valB === 'number') {
-            return currentSortAsc ? valA - valB : valB - valA;
+      if (currentSort.col) {
+        currentFilteredData.sort((a, b) => {
+          let vA = a[currentSort.col];
+          let vB = b[currentSort.col];
+          let numA = parseFloat(String(vA).replace('%', ''));
+          let numB = parseFloat(String(vB).replace('%', ''));
+          if (!isNaN(numA) && !isNaN(numB)) {
+            return currentSort.asc ? numA - numB : numB - numA;
           }
-          return currentSortAsc
-            ? String(valA).localeCompare(String(valB), 'zh-Hant', { numeric: true })
-            : String(valB).localeCompare(String(valA), 'zh-Hant', { numeric: true });
+          return currentSort.asc ? String(vA).localeCompare(String(vB)) : String(vB).localeCompare(String(vA));
         });
       }
 
-      // 3. 渲染表頭
-      const thead = document.getElementById('excel-thead');
-      thead.innerHTML = `
-        <tr>
-          ${columns.map((col, colIdx) => {
-            const isSorted = currentSortKey === col;
-            const isFiltered = Boolean(columnFilters[col]);
-            const sortIcon = isSorted ? (currentSortAsc ? '▲' : '▼') : '';
-            const uniqueVals = [...new Set(rawData.map(r => formatCellVal(col, r[col])))].sort((a, b) =>
-              a.localeCompare(b, 'zh-Hant', { numeric: true })
-            );
-            const currentSet = columnFilters[col] || new Set(uniqueVals);
-            const isMenuOpen = openMenuColumn === col;
-            const alignRightClass = colIdx >= columns.length - 2 ? 'right-0' : 'left-0';
+      renderExcelTable(columns, currentFilteredData, rawData.length);
+    }
 
-            return `
-              <th class="p-2.5 font-bold text-slate-700 select-none whitespace-nowrap relative">
-                <div class="flex items-center justify-between gap-2">
-                  <span onclick="sortColumnDirect('${col}', ${isSorted ? !currentSortAsc : false}, event)"
-                    class="cursor-pointer hover:text-blue-600 flex items-center gap-1">
-                    ${col}
-                    ${sortIcon ? `<span class="text-blue-600 text-xs">${sortIcon}</span>` : ''}
-                  </span>
-                  <button onclick="toggleExcelFilterMenu('${col}', event)"
-                    title="點擊開啟此欄位篩選選單"
-                    class="px-1.5 py-0.5 rounded text-xs border transition ${
-                      isFiltered || isMenuOpen
-                        ? 'bg-blue-600 text-white border-blue-600 font-bold'
-                        : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-200'
-                    }">
-                    ${isFiltered ? '🌪️' : '▼'}
-                  </button>
-                </div>
+    function renderExcelTable(columns, data, totalCount) {
+      const table = document.getElementById('excel-table');
+      document.getElementById('table-row-count').innerText = `顯示 ${data.length} / ${totalCount} 筆資料`;
 
-                ${isMenuOpen ? `
-                  <div onclick="event.stopPropagation()"
-                    class="excel-dropdown-menu absolute top-full ${alignRightClass} mt-1 w-60 bg-white border border-slate-300 rounded-xl shadow-2xl z-50 p-3 font-normal text-xs text-slate-700 space-y-2.5">
-                    <div class="font-bold text-slate-800 border-b pb-1.5 flex items-center justify-between">
-                      <span>欄位：${col}</span>
-                      <button onclick="closeAllExcelMenus()" class="text-slate-400 hover:text-slate-600">✕</button>
-                    </div>
+      if (data.length === 0 && columns.length === 0) {
+        table.innerHTML = `<tr><td class="p-6 text-center text-slate-400">目前無資料</td></tr>`;
+        return;
+      }
 
-                    <div class="grid grid-cols-2 gap-1.5">
-                      <button onclick="sortColumnDirect('${col}', true, event)"
-                        class="px-2 py-1.5 rounded border text-left flex items-center gap-1 ${
-                          isSorted && currentSortAsc ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'border-slate-200 hover:bg-slate-100'
-                        }">
-                        <span>▲</span> 升冪排序
-                      </button>
-                      <button onclick="sortColumnDirect('${col}', false, event)"
-                        class="px-2 py-1.5 rounded border text-left flex items-center gap-1 ${
-                          isSorted && !currentSortAsc ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'border-slate-200 hover:bg-slate-100'
-                        }">
-                        <span>▼</span> 降冪排序
-                      </button>
-                    </div>
+      // 1. 生成表頭 (每個欄位均附帶類 Excel 下拉按鈕)
+      let theadHtml = `<thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 shadow-sm z-20"><tr>`;
+      columns.forEach(col => {
+        const isFiltered = activeFilters[col] && activeFilters[col].length > 0;
+        theadHtml += `
+          <th class="p-2.5 border-b border-slate-200 whitespace-nowrap">
+            <div class="flex items-center justify-between space-x-2">
+              <span>${col}</span>
+              <button onclick="toggleFilterMenu(event, '${col}')" class="p-1 rounded hover:bg-slate-200 ${isFiltered ? 'text-red-600 font-black' : 'text-slate-400'}">
+                <i class="fa-solid fa-filter text-[10px]"></i>
+              </button>
+            </div>
+          </th>`;
+      });
+      theadHtml += `</tr></thead>`;
 
-                    <div>
-                      <input type="text" oninput="filterMenuOptionsBySearch(this)" placeholder="搜尋「${col}」..."
-                        class="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-600">
-                    </div>
+      // 2. 生成資料列 (條紋斑馬紋)
+      let tbodyHtml = `<tbody class="divide-y divide-slate-100">`;
+      data.forEach((row, idx) => {
+        tbodyHtml += `<tr class="${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-red-50/30 transition">`;
+        columns.forEach(col => {
+          tbodyHtml += `<td class="p-2.5 whitespace-nowrap text-slate-700">${row[col] !== undefined ? row[col] : ''}</td>`;
+        });
+        tbodyHtml += `</tr>`;
+      });
+      tbodyHtml += `</tbody>`;
 
-                    <div class="flex items-center justify-between text-[11px] text-blue-600 font-semibold px-0.5">
-                      <button onclick="selectAllFilterOptions('${col}', true, event)" class="hover:underline">☑ 全選</button>
-                      <button onclick="selectAllFilterOptions('${col}', false, event)" class="hover:underline text-slate-500">☐ 清空</button>
-                    </div>
+      // 3. 生成動態合計 / 平均置底列 (Summary Row)
+      let tfootHtml = `<tfoot class="bg-slate-100 text-slate-800 font-bold sticky bottom-0 border-t-2 border-slate-300 z-10"><tr>`;
+      columns.forEach((col, idx) => {
+        if (idx === 0) {
+          tfootHtml += `<td class="p-2.5 whitespace-nowrap text-red-700">合計 / 平均</td>`;
+        } else {
+          // 檢查該欄是否為數值
+          const numbers = data.map(r => parseFloat(String(r[col]).replace('%', ''))).filter(n => !isNaN(n));
+          if (numbers.length > 0 && numbers.length === data.length) {
+            const sum = numbers.reduce((a, b) => a + b, 0);
+            const avg = sum / numbers.length;
+            const isPercent = String(data[0][col]).includes('%');
+            tfootHtml += `
+              <td class="p-2.5 whitespace-nowrap font-mono text-[11px]">
+                <div>和: ${isPercent ? sum.toFixed(1) + '%' : sum.toLocaleString()}</div>
+                <div class="text-slate-500 font-normal">均: ${isPercent ? avg.toFixed(1) + '%' : avg.toFixed(1)}</div>
+              </td>`;
+          } else {
+            tfootHtml += `<td class="p-2.5 whitespace-nowrap text-slate-400">-</td>`;
+          }
+        }
+      });
+      tfootHtml += `</tr></tfoot>`;
 
-                    <div class="filter-options-list max-h-40 overflow-y-auto border border-slate-200 rounded p-1.5 space-y-1 bg-slate-50">
-                      ${uniqueVals.map(v => {
-                        const isChecked = currentSet.has(v);
-                        const safeVal = v.replace(/'/g, "\\'");
-                        return `
-                          <label data-val="${v}" class="flex items-center space-x-2 p-1 rounded hover:bg-white cursor-pointer">
-                            <input type="checkbox" ${isChecked ? 'checked' : ''}
-                              onchange="toggleFilterOption('${col}', '${safeVal}', this.checked)"
-                              class="rounded text-blue-600 w-3.5 h-3.5">
-                            <span class="truncate">${v}</span>
-                          </label>
-                        `;
-                      }).join('')}
-                    </div>
-                  </div>
-                ` : ''}
-              </th>
-            `;
-          }).join('')}
-        </tr>
+      table.innerHTML = theadHtml + tbodyHtml + tfootHtml;
+    }
+
+    // 快捷視野：只看本所
+    function filterByMyBranch() {
+      if (!currentUser) return;
+      activeFilters = { "營業所": [currentUser.branch] };
+      applyTableFilters();
+    }
+
+    // 快捷視野：只看本人
+    function filterByMe() {
+      if (!currentUser) return;
+      activeFilters = { "業代姓名": [currentUser.name] };
+      applyTableFilters();
+    }
+
+    function resetExcelFilters() {
+      activeFilters = {};
+      currentSort = { col: null, asc: true };
+      applyTableFilters();
+    }
+
+    /* 類 Excel 下拉浮動選單 (多選與排序) */
+    function toggleFilterMenu(e, col) {
+      e.stopPropagation();
+      const oldMenu = document.getElementById('excel-filter-popup');
+      if (oldMenu) oldMenu.remove();
+
+      const rawData = activeFile.sheets[activeSheetName] || [];
+      const allUniqueValues = [...new Set(rawData.map(r => String(r[col])))];
+      const selected = activeFilters[col] || allUniqueValues;
+
+      const rect = e.target.getBoundingClientRect();
+      const popup = document.createElement('div');
+      popup.id = 'excel-filter-popup';
+      popup.className = 'fixed bg-white border border-slate-200 shadow-2xl rounded-xl p-3 z-50 w-56 text-xs space-y-2';
+      popup.style.top = `${rect.bottom + 6}px`;
+      popup.style.left = `${Math.min(rect.left, window.innerWidth - 240)}px`;
+
+      popup.innerHTML = `
+        <div class="space-y-1 pb-2 border-b border-slate-100">
+          <button onclick="sortColumn('${col}', true)" class="w-full text-left px-2 py-1.5 hover:bg-slate-100 rounded flex items-center space-x-1.5">
+            <i class="fa-solid fa-arrow-up-a-z text-slate-500"></i><span>升冪排序 (A → Z)</span>
+          </button>
+          <button onclick="sortColumn('${col}', false)" class="w-full text-left px-2 py-1.5 hover:bg-slate-100 rounded flex items-center space-x-1.5">
+            <i class="fa-solid fa-arrow-down-z-a text-slate-500"></i><span>降冪排序 (Z → A)</span>
+          </button>
+        </div>
+        <div class="text-[11px] font-bold text-slate-400">篩選勾選項目:</div>
+        <div class="max-h-36 overflow-y-auto custom-scrollbar space-y-1">
+          ${allUniqueValues.map(val => `
+            <label class="flex items-center space-x-2 px-1 py-0.5 hover:bg-slate-50 rounded cursor-pointer">
+              <input type="checkbox" value="${val}" ${selected.includes(val) ? 'checked' : ''} class="filter-chk rounded text-red-600">
+              <span class="truncate">${val}</span>
+            </label>
+          `).join('')}
+        </div>
+        <div class="flex justify-between pt-2 border-t border-slate-100">
+          <button onclick="clearSingleFilter('${col}')" class="text-slate-400 hover:text-slate-600">全選</button>
+          <button onclick="confirmColumnFilter('${col}')" class="px-2.5 py-1 bg-red-600 text-white font-medium rounded hover:bg-red-700">確定</button>
+        </div>
       `;
 
-      // 4. 渲染資料列
-      const tbody = document.getElementById('excel-tbody');
-      if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="${columns.length}" class="p-8 text-center text-slate-400">無符合條件之資料</td></tr>`;
-      } else {
-        tbody.innerHTML = filtered.map(row => `
-          <tr>
-            ${columns.map(col => {
-              let val = row[col];
-              if (col === '達成率' && typeof val === 'number') {
-                const colorClass = val >= 100
-                  ? 'bg-emerald-100 text-emerald-800 font-bold'
-                  : val >= 80
-                  ? 'bg-amber-100 text-amber-800 font-semibold'
-                  : 'bg-rose-100 text-rose-700 font-semibold';
-                return `<td class="p-2.5 whitespace-nowrap"><span class="px-2 py-0.5 rounded ${colorClass}">${val.toFixed(1)}%</span></td>`;
-              }
-              return `<td class="p-2.5 whitespace-nowrap text-slate-700">${val ?? ''}</td>`;
-            }).join('')}
-          </tr>
-        `).join('');
-      }
-
-      // 5. 渲染動態合計／平均置底列 (Summary Row)
-      const tfoot = document.getElementById('excel-tfoot');
-      if (filtered.length > 0 && numericCols.length > 0) {
-        tfoot.innerHTML = `
-          <!-- 合計列 (Sum) -->
-          <tr class="bg-slate-100 font-bold text-slate-800 border-t-2 border-slate-300">
-            ${columns.map((col, idx) => {
-              if (idx === 0) return `<td class="p-2.5 whitespace-nowrap">∑ 當前合計 (${filtered.length}筆)</td>`;
-              if (col === '達成率') {
-                const avg = filtered.reduce((acc, r) => acc + (Number(r[col]) || 0), 0) / filtered.length;
-                return `<td class="p-2.5 whitespace-nowrap text-blue-800">${avg.toFixed(1)}% (均值)</td>`;
-              }
-              if (numericCols.includes(col)) {
-                const sum = filtered.reduce((acc, r) => acc + (Number(r[col]) || 0), 0);
-                return `<td class="p-2.5 whitespace-nowrap text-slate-900">${sum.toLocaleString()}</td>`;
-              }
-              return `<td class="p-2.5 whitespace-nowrap text-slate-400">-</td>`;
-            }).join('')}
-          </tr>
-        `;
-      } else {
-        tfoot.innerHTML = '';
-      }
-
-      document.getElementById('excel-row-count').textContent = `目前顯示 ${filtered.length} 筆資料（原始總計 ${rawData.length} 筆）`;
+      document.body.appendChild(popup);
+      document.addEventListener('click', function closeMenu(ev) {
+        if (!popup.contains(ev.target)) {
+          popup.remove();
+          document.removeEventListener('click', closeMenu);
+        }
+      });
     }
 
-    // ================= 管理員後台：分頁切換與 4 大模組 =================
-    function switchAdminTab(tabName) {
-      currentAdminTab = tabName;
+    function sortColumn(col, asc) {
+      currentSort = { col, asc };
+      applyTableFilters();
+      const popup = document.getElementById('excel-filter-popup');
+      if (popup) popup.remove();
+    }
+
+    function confirmColumnFilter(col) {
+      const checkboxes = document.querySelectorAll('.filter-chk');
+      const selected = Array.from(checkboxes).filter(c => c.checked).map(c => c.value);
+      activeFilters[col] = selected;
+      applyTableFilters();
+      const popup = document.getElementById('excel-filter-popup');
+      if (popup) popup.remove();
+    }
+
+    function clearSingleFilter(col) {
+      delete activeFilters[col];
+      applyTableFilters();
+      const popup = document.getElementById('excel-filter-popup');
+      if (popup) popup.remove();
+    }
+
+    /* ---------------- 5. 管理員後台四大分頁切換與操作 ---------------- */
+    function switchAdminTab(tab) {
       ['files', 'folders', 'users', 'audit'].forEach(t => {
-        const panel = document.getElementById(`admin-tab-${t}`);
-        const btn = document.getElementById(`admin-tab-btn-${t}`);
-        if (t === tabName) {
-          panel.classList.remove('hidden');
-          btn.className = 'px-4 py-2.5 text-xs sm:text-sm font-bold rounded-t-lg border-b-2 border-blue-600 bg-white text-blue-700 whitespace-nowrap';
-        } else {
-          panel.classList.add('hidden');
-          btn.className = 'px-4 py-2.5 text-xs sm:text-sm font-medium rounded-t-lg border-b-2 border-transparent text-slate-600 hover:text-slate-900 whitespace-nowrap';
-        }
+        document.getElementById(`admin-tab-${t}`).classList.add('hidden');
+        document.getElementById(`tab-btn-${t}`).className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center space-x-1.5';
       });
-      renderAdminAll();
+
+      document.getElementById(`admin-tab-${tab}`).classList.remove('hidden');
+      document.getElementById(`tab-btn-${tab}`).className = 'px-4 py-2.5 text-xs font-bold border-b-2 border-red-600 text-red-600 flex items-center space-x-1.5';
+
+      if (tab === 'files') renderAdminFiles();
+      if (tab === 'folders') renderAdminFolders();
+      if (tab === 'users') renderAdminUsers();
+      if (tab === 'audit') renderAdminAudit();
     }
 
-    function renderAdminAll() {
-      renderCategoryTabs();
-      renderAdminFiles();
-      renderAdminCategories();
-      renderAdminUsers();
-      renderAuditTable();
-    }
-
-    // --- 分頁 1：SheetJS 原生 Excel 上傳與覆蓋更新 ---
-    function handleRealExcelUpload(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      document.getElementById('upload-file-label').textContent = `已讀取檔案：${file.name}`;
-      const baseName = file.name.replace(/\.[^/.]+$/, '');
-      document.getElementById('upload-title').value = baseName;
-
-      const ext = file.name.split('.').pop().toLowerCase();
-      if (['doc', 'docx', 'pdf'].includes(ext)) {
-        selectedUploadType = 'WORD';
-        parsedUploadRows = null;
-      } else {
-        selectedUploadType = 'EXCEL';
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-          if (jsonRows.length > 0) {
-            parsedUploadRows = jsonRows;
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }
-    }
-
-    function handleConfirmUpload() {
-      const month = document.getElementById('upload-month').value;
-      const category = document.getElementById('upload-category').value;
-      const titleInput = document.getElementById('upload-title').value.trim();
-
-      const allowedRoles = [];
-      if (document.getElementById('perm-manager').checked) allowedRoles.push('所長');
-      if (document.getElementById('perm-deputy').checked) allowedRoles.push('副所長');
-      if (document.getElementById('perm-sales').checked) allowedRoles.push('業代');
-
-      if (allowedRoles.length === 0) {
-        alert('請至少勾選一個可查閱此檔案的群組！');
-        return;
-      }
-
-      const title = titleInput || `${month} 最新${category}`;
-      const now = new Date();
-      const timeStr = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-
-      const newFile = {
-        id: 'F' + Date.now(),
-        month,
-        category,
-        title,
-        type: selectedUploadType,
-        updatedAt: timeStr,
-        allowedRoles,
-        data: selectedUploadType === 'EXCEL' ? (parsedUploadRows || salesPerformanceRows) : null,
-        content: selectedUploadType === 'WORD'
-          ? `<h3 class="text-lg font-bold text-blue-900 mb-2">${title}</h3><p class="text-sm text-slate-700 leading-relaxed">管理員於 ${timeStr} 發布之文件內容。</p>`
-          : null
-      };
-
-      filesDB.unshift(newFile);
-      document.getElementById('upload-title').value = '';
-      document.getElementById('upload-file-input').value = '';
-      document.getElementById('upload-file-label').textContent = '點擊此處從電腦選擇實體 Excel 檔';
-      parsedUploadRows = null;
-      selectedUploadType = 'EXCEL';
-
-      renderAdminFiles();
-      renderFileList();
-      alert(`已成功發布「${title}」！`);
-    }
-
-    function triggerOverwriteUpload(fileId) {
-      const file = filesDB.find(f => f.id === fileId);
-      if (!file) return;
-
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.xlsx,.xls,.csv';
-      input.onchange = function(e) {
-        const upFile = e.target.files[0];
-        if (!upFile) return;
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-          const data = new Uint8Array(evt.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const jsonRows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
-          if (jsonRows.length > 0) {
-            file.data = jsonRows;
-            const now = new Date();
-            file.updatedAt = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-            renderAdminFiles();
-            renderFileList();
-            if (currentFile && currentFile.id === file.id) {
-              selectFile(file.id);
-            }
-            alert(`已成功覆蓋更新「${file.title}」之最新數據！`);
-          }
-        };
-        reader.readAsArrayBuffer(upFile);
-      };
-      input.click();
-    }
-
-    function handleDeleteFile(fileId) {
-      filesDB = filesDB.filter(f => f.id !== fileId);
-      if (currentFile && currentFile.id === fileId) currentFile = null;
-      renderAdminFiles();
-      renderFileList();
-    }
-
-    function toggleFileRolePermission(fileId, roleName) {
-      const file = filesDB.find(f => f.id === fileId);
-      if (!file) return;
-      const idx = file.allowedRoles.indexOf(roleName);
-      if (idx >= 0) {
-        if (file.allowedRoles.length === 1) {
-          alert('至少需保留一個可閱讀群組！');
-          return;
-        }
-        file.allowedRoles.splice(idx, 1);
-      } else {
-        file.allowedRoles.push(roleName);
-      }
-      renderAdminFiles();
-      renderFileList();
-    }
-
+    /* 後台分頁 1：檔案上傳、覆蓋更新與刪除 */
     function renderAdminFiles() {
-      document.getElementById('admin-file-count').textContent = `共 ${filesDB.length} 份線上檔案`;
-      const container = document.getElementById('admin-file-list');
-      if (filesDB.length === 0) {
-        container.innerHTML = `<div class="p-8 text-center text-slate-400 text-xs">目前尚無檔案</div>`;
-        return;
-      }
+      const sel = document.getElementById('upload-file-category');
+      sel.innerHTML = categories.map(c => `<option value="${c.id}">${c.name} (${c.month})</option>`).join('');
 
-      container.innerHTML = filesDB.map(f => {
-        const roles = ['所長', '副所長', '業代'];
-        const roleBtns = roles.map(r => {
-          const active = f.allowedRoles.includes(r);
-          return `
-            <button onclick="toggleFileRolePermission('${f.id}', '${r}')"
-              class="px-2 py-0.5 rounded text-[11px] font-semibold border transition ${
-                active ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-400 border-slate-200 line-through'
-              }">
-              ${active ? '✓' : '✕'} ${r}
-            </button>
-          `;
-        }).join('');
-
+      const container = document.getElementById('admin-file-table');
+      container.innerHTML = portalFiles.map(f => {
+        const cat = categories.find(c => c.id === f.catId);
         return `
-          <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div class="font-bold text-slate-800 text-xs sm:text-sm">${f.title}</div>
-              <div class="text-[11px] text-slate-500 mt-0.5">月份：${f.month} ｜ 分類：${f.category} ｜ 更新：${f.updatedAt}</div>
+          <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div class="space-y-1">
+              <div class="font-bold text-slate-800 text-sm">${f.title}</div>
+              <div class="text-slate-400">歸屬分類：<span class="text-slate-600">${cat ? cat.name : '--'}</span> ‧ 更新：${f.updateTime}</div>
+              <div class="flex items-center space-x-1.5 text-[11px] pt-1">
+                <span class="text-slate-500 font-semibold">授權可見群組：</span>
+                ${f.allowedRoles.map(r => `<span class="bg-white border px-1.5 py-0.5 rounded text-slate-600 font-mono">${r}</span>`).join('')}
+              </div>
             </div>
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="text-[11px] text-slate-500">閱讀權限：</span>
-              ${roleBtns}
-              ${f.type === 'EXCEL' ? `
-                <button onclick="triggerOverwriteUpload('${f.id}')"
-                  class="ml-1 px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 border border-blue-200 text-xs font-semibold transition">
-                  🔄 覆蓋更新數據
-                </button>
-              ` : ''}
-              <button onclick="handleDeleteFile('${f.id}')"
-                class="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-200 text-xs font-semibold transition">
-                🗑️ 刪除
+            <div class="flex items-center space-x-2 shrink-0">
+              <label class="px-2.5 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded font-medium cursor-pointer transition">
+                <i class="fa-solid fa-arrows-rotate mr-1"></i>覆蓋數據
+                <input type="file" accept=".xlsx, .csv" class="hidden" onchange="handleOverwriteFileData(event, '${f.id}')">
+              </label>
+              <button onclick="handleDeleteFile('${f.id}')" class="px-2.5 py-1.5 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded font-medium transition">
+                <i class="fa-solid fa-trash-can mr-1"></i>刪除檔案
               </button>
             </div>
           </div>
@@ -1399,290 +866,314 @@ D003,吳志偉,桃園所,1234,副所長</textarea>
       }).join('');
     }
 
-    // --- 分頁 2：資料夾分類增刪改 ---
-    function handleAddCategory() {
-      const input = document.getElementById('new-category-input');
-      const name = input.value.trim();
-      if (!name) return;
-      if (categoriesDB.includes(name)) {
-        alert('此分類已存在！');
+    function handleFileUpload() {
+      const fileInput = document.getElementById('upload-file-input');
+      const name = document.getElementById('upload-file-name').value.trim();
+      const catId = document.getElementById('upload-file-category').value;
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert('請先選取電腦中的 .xlsx 或 .csv 檔案！');
         return;
       }
-      categoriesDB.push(name);
-      input.value = '';
-      renderAdminAll();
-      renderFileList();
-    }
+      const title = name || fileInput.files[0].name.replace(/\.[^/.]+$/, "");
 
-    function handleRenameCategory(idx) {
-      const oldName = categoriesDB[idx];
-      const inputEl = document.getElementById(`cat-edit-input-${idx}`);
-      const newName = inputEl.value.trim();
-      if (!newName || newName === oldName) return;
-      if (categoriesDB.includes(newName)) {
-        alert('分類名稱重複！');
-        return;
-      }
-      categoriesDB[idx] = newName;
-      filesDB.forEach(f => {
-        if (f.category === oldName) f.category = newName;
-      });
-      if (currentCategory === oldName) currentCategory = newName;
-      renderAdminAll();
-      renderFileList();
-      alert(`已將「${oldName}」更新為「${newName}」！`);
-    }
-
-    function handleDeleteCategory(idx) {
-      if (categoriesDB.length <= 1) {
-        alert('系統至少需保留一個分類！');
-        return;
-      }
-      const targetName = categoriesDB[idx];
-      categoriesDB.splice(idx, 1);
-      const fallback = categoriesDB[0];
-      filesDB.forEach(f => {
-        if (f.category === targetName) f.category = fallback;
-      });
-      if (currentCategory === targetName) currentCategory = 'ALL';
-      renderAdminAll();
-      renderFileList();
-    }
-
-    function renderAdminCategories() {
-      const container = document.getElementById('admin-category-list');
-      container.innerHTML = categoriesDB.map((cat, idx) => {
-        const count = filesDB.filter(f => f.category === cat).length;
-        return `
-          <div class="p-3.5 bg-white flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-2 flex-1 min-w-[240px]">
-              <span class="text-lg">📁</span>
-              <input id="cat-edit-input-${idx}" type="text" value="${cat}"
-                class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-800 flex-1 max-w-xs focus:border-blue-600 focus:outline-none">
-              <span class="text-xs text-slate-400">（含 ${count} 份檔案）</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <button onclick="handleRenameCategory(${idx})"
-                class="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 border border-blue-200 text-xs font-semibold transition">
-                ✏️ 儲存名稱
-              </button>
-              <button onclick="handleDeleteCategory(${idx})"
-                class="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-600 border border-rose-200 text-xs font-semibold transition">
-                🗑️ 刪除
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    // --- 分頁 3：員工帳號匯入與「全員密碼明文查詢」 ---
-    function togglePasswordVisibilityAll() {
-      showAllPasswords = !showAllPasswords;
-      document.getElementById('btn-toggle-all-pwd').textContent = showAllPasswords ? '🙈 隱藏密碼' : '👁️ 顯示所有明文密碼';
-      renderAdminUsers();
-    }
-
-    function downloadSampleEmployeeCSV() {
-      const sampleRows = [
-        '工號,姓名,營業所,密碼,群組',
-        'M005,陳大文,桃園所,1234,所長',
-        'D005,林政宏,中壢所,1234,副所長',
-        'S018,王心怡,新竹所,1234,業代',
-        'S019,李冠廷,竹北所,1234,業代'
-      ].join('\n');
-
-      const blob = new Blob(['\uFEFF' + sampleRows], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = '員工帳號匯入範例檔.csv';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    function handleEmployeeFileUpload(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-      document.getElementById('user-csv-file-label').textContent = `已讀取：${file.name}`;
+      const roles = ['admin'];
+      if (document.getElementById('perm-manager').checked) roles.push('manager');
+      if (document.getElementById('perm-deputy').checked) roles.push('deputy');
+      if (document.getElementById('perm-sales').checked) roles.push('sales');
 
       const reader = new FileReader();
       reader.onload = function(e) {
-        const content = e.target.result;
-        const lines = content.trim().split(/\r?\n/).filter(line => !line.includes('工號') && line.trim() !== '');
-        document.getElementById('batch-user-input').value = lines.join('\n');
-        handleBatchImportUsers();
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetsData = {};
+        workbook.SheetNames.forEach(sheetName => {
+          sheetsData[sheetName] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        });
+
+        const newFile = {
+          id: 'file-' + Date.now(),
+          title: title,
+          catId: catId,
+          updateTime: new Date().toISOString().replace('T', ' ').substring(0, 16),
+          allowedRoles: roles,
+          sheets: sheetsData
+        };
+
+        portalFiles.unshift(newFile);
+        alert('✅ 報表上傳並解析發布成功！');
+        renderAdminFiles();
+        document.getElementById('upload-file-name').value = '';
+        fileInput.value = '';
+      };
+      reader.readAsArrayBuffer(fileInput.files[0]);
+    }
+
+    function handleOverwriteFileData(e, fileId) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const target = portalFiles.find(f => f.id === fileId);
+      if (!target) return;
+
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const data = new Uint8Array(ev.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetsData = {};
+        workbook.SheetNames.forEach(s => {
+          sheetsData[s] = XLSX.utils.sheet_to_json(workbook.Sheets[s]);
+        });
+        target.sheets = sheetsData;
+        target.updateTime = new Date().toISOString().replace('T', ' ').substring(0, 16);
+        alert(`✅ 檔案【${target.title}】數據已成功覆蓋更新！`);
+        renderAdminFiles();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function handleDeleteFile(fileId) {
+      if (!confirm('確定要刪除這份檔案嗎？此動作不可復原！')) return;
+      portalFiles = portalFiles.filter(f => f.id !== fileId);
+      renderAdminFiles();
+    }
+
+    /* 後台分頁 2：資料夾分類與歸屬月份管理 */
+    function renderAdminFolders() {
+      const container = document.getElementById('admin-folder-list');
+      container.innerHTML = categories.map(cat => `
+        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs">
+          <div class="flex items-center space-x-2 flex-1">
+            <input type="month" value="${cat.month}" id="cat-month-${cat.id}" class="px-2 py-1 text-xs border rounded w-32 bg-white">
+            <input type="text" value="${cat.name}" id="cat-name-${cat.id}" class="px-2.5 py-1 text-xs border rounded flex-1 bg-white focus:ring-1 focus:ring-red-500">
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="handleUpdateFolder('${cat.id}')" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded font-medium transition">
+              儲存變更
+            </button>
+            <button onclick="handleDeleteFolder('${cat.id}')" class="px-2.5 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded font-medium transition">
+              刪除分類
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function handleCreateFolder() {
+      const month = document.getElementById('new-folder-month').value;
+      const name = document.getElementById('new-folder-name').value.trim();
+      if (!month || !name) {
+        alert('請填寫完整歸屬月份與分類名稱！');
+        return;
+      }
+      categories.push({ id: 'cat-' + Date.now(), month, name });
+      alert('✅ 分類新增成功！');
+      document.getElementById('new-folder-name').value = '';
+      renderAdminFolders();
+    }
+
+    function handleUpdateFolder(catId) {
+      const cat = categories.find(c => c.id === catId);
+      if (!cat) return;
+      cat.month = document.getElementById(`cat-month-${catId}`).value;
+      cat.name = document.getElementById(`cat-name-${catId}`).value.trim();
+      alert('✅ 分類名稱與歸屬月份已儲存！');
+      renderAdminFolders();
+    }
+
+    function handleDeleteFolder(catId) {
+      if (!confirm('刪除分類將會影響該分類下的檔案顯示，確定要刪除嗎？')) return;
+      categories = categories.filter(c => c.id !== catId);
+      renderAdminFolders();
+    }
+
+    /* 後台分頁 3：員工帳號增量匯入、密碼顯示與刪除管理員 */
+    function renderAdminUsers() {
+      const tbody = document.getElementById('admin-user-tbody');
+      tbody.innerHTML = userDatabase.map(u => {
+        const roleName = { admin: '管理員', manager: '所長', deputy: '副所長', sales: '業代' }[u.role] || u.role;
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-3 font-mono font-bold text-slate-800">${u.empId}</td>
+            <td class="p-3">${u.name}</td>
+            <td class="p-3"><span class="px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-semibold">${roleName}</span></td>
+            <td class="p-3 text-slate-600">${u.branch}</td>
+            <td class="p-3 font-mono">
+              <span class="user-pwd-text text-slate-800 font-semibold">${showAllPlainPasswords ? u.password : '••••••'}</span>
+            </td>
+            <td class="p-3 text-center space-x-1">
+              <button onclick="adminResetUserPassword('${u.empId}')" class="px-2 py-1 text-slate-600 hover:text-red-600 underline">改密</button>
+              <button onclick="handleDeleteUser('${u.empId}')" class="px-2 py-1 text-red-500 hover:text-red-700 underline">刪除</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleShowAllPasswords() {
+      showAllPlainPasswords = !showAllPlainPasswords;
+      document.getElementById('btn-toggle-pwd').innerHTML = showAllPlainPasswords
+        ? `<i class="fa-regular fa-eye-slash mr-1"></i>隱藏全員密碼`
+        : `<i class="fa-regular fa-eye mr-1"></i>顯示全員明文密碼`;
+      renderAdminUsers();
+    }
+
+    function adminResetUserPassword(empId) {
+      const user = userDatabase.find(u => u.empId === empId);
+      if (!user) return;
+      const newPwd = prompt(`請輸入同仁【${user.name} (${user.empId})】的新密碼：`, user.password);
+      if (newPwd && newPwd.trim() !== '') {
+        user.password = newPwd.trim();
+        alert(`✅ 同仁【${user.name}】密碼已更新為：${user.password}`);
+        renderAdminUsers();
+      }
+    }
+
+    function handleDeleteUser(empId) {
+      const target = userDatabase.find(u => u.empId === empId);
+      if (!target) return;
+
+      const admins = userDatabase.filter(u => u.role === 'admin');
+      if (target.role === 'admin' && admins.length <= 1) {
+        if (!confirm('⚠️ 注意：這是系統目前最後一位管理員！刪除後可能會無法進入後台，您確定要刪除嗎？')) {
+          return;
+        }
+      } else {
+        if (!confirm(`確定要刪除【${target.name} (${target.empId})】的帳號嗎？`)) return;
+      }
+
+      userDatabase = userDatabase.filter(u => u.empId !== empId);
+      alert(`✅ 已成功刪除帳號：${target.name}`);
+      renderAdminUsers();
+    }
+
+    function downloadUserCsvTemplate() {
+      const csvContent = "\uFEFF工號,姓名,角色(admin/manager/deputy/sales),營業所,初始密碼\nS003,林小美,sales,中壢營業所,1234\nM003,高所長,manager,桃園營業所,1234\nDM002,陳副所,deputy,新竹營業所,1234";
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "員工帳號增量匯入範本.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function handleUserCsvUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const text = evt.target.result;
+        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length <= 1) {
+          alert('CSV 內容為空或格式錯誤！');
+          return;
+        }
+
+        let addedCount = 0;
+        let updatedCount = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(',').map(p => p.trim());
+          if (parts.length >= 4) {
+            const empId = parts[0];
+            const name = parts[1];
+            let role = parts[2].toLowerCase();
+            if (role.includes('所長') && !role.includes('副')) role = 'manager';
+            else if (role.includes('副所長') || role.includes('副')) role = 'deputy';
+            else if (role.includes('業代')) role = 'sales';
+            else if (role.includes('管理')) role = 'admin';
+
+            const branch = parts[3];
+            const password = parts[4] || '1234';
+
+            const existing = userDatabase.find(u => u.empId.toLowerCase() === empId.toLowerCase());
+            if (existing) {
+              existing.name = name;
+              existing.role = role;
+              existing.branch = branch;
+              existing.password = password;
+              updatedCount++;
+            } else {
+              userDatabase.push({
+                empId, name, role, branch, password,
+                lastLogin: '尚未登入', viewCount: 0, readCurrent: false
+              });
+              addedCount++;
+            }
+          }
+        }
+
+        alert(`✅ 智慧增量匯入完成！\n新增人員：${addedCount} 位\n更新人員：${updatedCount} 位\n現有其他職級同仁名單已完整保留！`);
+        renderAdminUsers();
+        e.target.value = '';
       };
       reader.readAsText(file);
     }
 
-    function handleBatchImportUsers() {
-      const rawText = document.getElementById('batch-user-input').value.trim();
-      if (!rawText) return;
-
-      const lines = rawText.split(/\r?\n/);
-      let count = 0;
-
-      lines.forEach(line => {
-        const parts = line.split(',').map(s => s.trim());
-        if (parts.length >= 5 && parts[0] !== '工號') {
-          let [id, name, branch, pwd, role] = parts;
-          if (!['業代', '副所長', '所長', '管理員'].includes(role)) role = '業代';
-          const existing = usersDB.find(u => u.id.toUpperCase() === id.toUpperCase());
-          if (existing) {
-            existing.name = name;
-            existing.branch = branch;
-            existing.pwd = pwd;
-            existing.role = role;
-          } else {
-            usersDB.push({
-              id: id.toUpperCase(),
-              name,
-              branch,
-              pwd,
-              role,
-              lastLogin: '尚未登入',
-              viewCount: 0,
-              hasReadLatest: false
-            });
-          }
-          count++;
-        }
-      });
-
-      renderAdminUsers();
-      renderAuditTable();
-      alert(`已成功匯入 / 更新 ${count} 筆員工資料！`);
-    }
-
-    function handleAdminResetUserPwd(userId) {
-      const user = usersDB.find(u => u.id === userId);
-      if (!user) return;
-      const newPwd = prompt(`請輸入同仁【${user.name} (${user.id})】的新密碼：`, user.pwd);
-      if (newPwd !== null && newPwd.trim() !== '') {
-        user.pwd = newPwd.trim();
-        renderAdminUsers();
-        alert(`同仁【${user.name}】的密碼已更新為：${user.pwd}`);
-      }
-    }
-
-    function changeUserRole(userId, newRole) {
-      const user = usersDB.find(u => u.id === userId);
-      if (user) {
-        user.role = newRole;
-        renderAdminUsers();
-      }
-    }
-
-    function deleteUserAccount(userId) {
-      if (userId === 'ADMIN01') {
-        alert('管理員帳號不可刪除！');
-        return;
-      }
-      usersDB = usersDB.filter(u => u.id !== userId);
-      renderAdminUsers();
-      renderAuditTable();
-    }
-
-    function renderAdminUsers() {
-      const roleFilter = document.getElementById('admin-user-role-filter').value;
-      const tbody = document.getElementById('admin-user-tbody');
-
-      const filteredUsers = usersDB.filter(u => roleFilter === 'ALL' || u.role === roleFilter);
-
-      tbody.innerHTML = filteredUsers.map(u => {
-        const pwdDisplay = showAllPasswords ? u.pwd : '••••••';
+    /* 後台分頁 4：點閱與未讀稽核紀錄 */
+    function renderAdminAudit() {
+      const tbody = document.getElementById('admin-audit-tbody');
+      tbody.innerHTML = userDatabase.map(u => {
+        const roleName = { admin: '管理員', manager: '所長', deputy: '副所長', sales: '業代' }[u.role] || u.role;
         return `
           <tr class="hover:bg-slate-50">
-            <td class="p-2.5 font-mono font-bold text-slate-800">${u.id}</td>
-            <td class="p-2.5 font-medium">${u.name}</td>
-            <td class="p-2.5 text-slate-600">${u.branch}</td>
-            <td class="p-2.5">
-              <select onchange="changeUserRole('${u.id}', this.value)"
-                class="border border-slate-300 rounded px-2 py-1 text-xs font-semibold ${
-                  u.role === '管理員' ? 'bg-amber-50 text-amber-800' :
-                  u.role === '所長' ? 'bg-indigo-50 text-indigo-800' :
-                  u.role === '副所長' ? 'bg-purple-50 text-purple-800' : 'bg-emerald-50 text-emerald-800'
-                }">
-                <option value="業代" ${u.role === '業代' ? 'selected' : ''}>🚗 業代</option>
-                <option value="副所長" ${u.role === '副所長' ? 'selected' : ''}>📋 副所長</option>
-                <option value="所長" ${u.role === '所長' ? 'selected' : ''}>👔 所長</option>
-                <option value="管理員" ${u.role === '管理員' ? 'selected' : ''}>🛠️ 管理員</option>
-              </select>
-            </td>
-            <!-- 目前密碼明文欄位 (防忘記密碼) -->
-            <td class="p-2.5 font-mono text-slate-800 bg-blue-50/30">
-              <span class="font-bold mr-2">${pwdDisplay}</span>
-              <button onclick="handleAdminResetUserPwd('${u.id}')" title="協助重設此密碼" class="text-blue-600 hover:underline text-[11px]">
-                [修改]
-              </button>
-            </td>
-            <td class="p-2.5 text-right space-x-2 whitespace-nowrap">
-              <button onclick="quickLogin('${u.id}')" class="text-blue-600 hover:underline font-semibold">
-                模擬登入
-              </button>
-              ${u.id !== 'ADMIN01' ? `
-                <button onclick="deleteUserAccount('${u.id}')" class="text-rose-600 hover:underline">
-                  刪除
-                </button>
-              ` : ''}
+            <td class="p-3 font-semibold text-slate-800">${u.name} <span class="text-xs text-slate-400 font-mono">(${u.empId})</span></td>
+            <td class="p-3">${roleName}</td>
+            <td class="p-3 text-slate-600">${u.branch}</td>
+            <td class="p-3 text-slate-500 font-mono">${u.lastLogin || '尚未登入'}</td>
+            <td class="p-3 font-bold text-slate-700">${u.viewCount || 0} 次</td>
+            <td class="p-3">
+              ${u.readCurrent 
+                ? '<span class="inline-flex items-center text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200"><i class="fa-solid fa-circle-check mr-1 text-[10px]"></i>已查閱</span>'
+                : '<span class="inline-flex items-center text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200"><i class="fa-solid fa-clock mr-1 text-[10px]"></i>尚未查閱</span>'
+              }
             </td>
           </tr>
         `;
       }).join('');
     }
 
-    // --- 分頁 4：查閱與未讀稽核紀錄 ---
-    function renderAuditTable() {
-      const tbody = document.getElementById('audit-tbody');
-      tbody.innerHTML = usersDB.map(u => {
-        const statusBadge = u.hasReadLatest
-          ? '<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold">✅ 已查閱</span>'
-          : '<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">⚠️ 尚未查閱</span>';
-
-        return `
-          <tr class="hover:bg-slate-50">
-            <td class="p-2.5 font-mono font-bold">${u.id}</td>
-            <td class="p-2.5">${u.name}</td>
-            <td class="p-2.5 text-slate-600">${u.branch}</td>
-            <td class="p-2.5"><span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">${u.role}</span></td>
-            <td class="p-2.5 text-slate-600">${u.lastLogin || '尚未登入'}</td>
-            <td class="p-2.5 font-semibold text-slate-800">${u.viewCount || 0} 次</td>
-            <td class="p-2.5">${statusBadge}</td>
-          </tr>
-        `;
-      }).join('');
+    /* ---------------- 6. 自助修改密碼 ---------------- */
+    function openChangePwdModal() {
+      document.getElementById('input-new-pwd').value = '';
+      document.getElementById('input-confirm-pwd').value = '';
+      document.getElementById('modal-change-pwd').classList.remove('hidden');
     }
 
-    // ================= 自助修改密碼邏輯 =================
-    function openChangePasswordModal() {
-      document.getElementById('pwd-modal-error').classList.add('hidden');
-      document.getElementById('modal-new-pwd').value = '';
-      document.getElementById('pwd-modal').classList.remove('hidden');
+    function closeChangePwdModal() {
+      document.getElementById('modal-change-pwd').classList.add('hidden');
     }
 
-    function closeChangePasswordModal() {
-      document.getElementById('pwd-modal').classList.add('hidden');
-    }
-
-    function handleSaveNewPassword() {
-      const newPwd = document.getElementById('modal-new-pwd').value.trim();
-      const errEl = document.getElementById('pwd-modal-error');
-
-      if (!newPwd) {
-        errEl.textContent = '密碼不得為空白！';
-        errEl.classList.remove('hidden');
+    function submitChangePassword() {
+      const p1 = document.getElementById('input-new-pwd').value.trim();
+      const p2 = document.getElementById('input-confirm-pwd').value.trim();
+      if (!p1 || p1 !== p2) {
+        alert('兩次輸入的新密碼不一致或為空，請重新輸入！');
         return;
       }
+      currentUser.password = p1;
+      alert('🎉 密碼修改成功！下次登入請使用新密碼。');
+      closeChangePwdModal();
+    }
 
-      if (currentUser) {
-        currentUser.pwd = newPwd;
-        renderAdminUsers();
-        closeChangePasswordModal();
-        alert(`密碼修改成功！新密碼為【${newPwd}】。\n若日後忘記，可隨時向系統管理員詢問。`);
-      }
+    /* ---------------- 7. 資料庫 JSON 匯出備份 ---------------- */
+    function exportFullDatabaseJson() {
+      const backupData = {
+        exportedAt: new Date().toISOString(),
+        users: userDatabase,
+        categories: categories,
+        files: portalFiles
+      };
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `桃苗汽車戰情系統備份_${new Date().toISOString().substring(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
   </script>
 </body>
