@@ -9,13 +9,13 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    /* 全域防洩密工號浮水印 (穿透點擊) - 前後台皆啟用 */
+    /* 全域防洩密浮水印 (穿透點擊) - 前後台皆啟用 */
     #watermark-layer {
       position: fixed;
       inset: 0;
       z-index: 9999;
       pointer-events: none;
-      opacity: 0.16;
+      opacity: 0.15;
     }
     .custom-scrollbar::-webkit-scrollbar {
       height: 7px;
@@ -25,14 +25,30 @@
       background: #cbd5e1;
       border-radius: 4px;
     }
+    /* 手機版橫向滑動首欄凍結鎖定 (Sticky Freeze Column) */
+    .freeze-col {
+      position: sticky;
+      left: 0;
+      z-index: 10;
+      background-color: inherit;
+      box-shadow: 2px 0 5px -2px rgba(0,0,0,0.08);
+    }
+    thead th.freeze-col {
+      z-index: 30;
+      background-color: #f1f5f9;
+    }
+    tfoot td.freeze-col {
+      z-index: 25;
+      background-color: #f1f5f9;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen relative selection:bg-red-100">
 
-  <!-- 動態浮水印畫布 (前後台全域覆蓋) -->
+  <!-- 動態浮水印畫布 (前後台全域覆蓋，僅顯示營業所與姓名) -->
   <canvas id="watermark-layer"></canvas>
 
-  <!-- ==================== 1. 系統登入頁面 ==================== -->
+  <!-- ==================== 1. 系統登入頁面 (已移除快速測試按鈕) ==================== -->
   <div id="view-login" class="min-h-screen flex items-center justify-center p-4">
     <div class="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-8">
       <div class="text-center mb-6">
@@ -45,12 +61,12 @@
 
       <div class="space-y-4">
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-1">員工工號 / 帳號</label>
-          <input type="text" id="login-emp-id" placeholder="請輸入工號 (例: S001)" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">員工帳號 / 工號</label>
+          <input type="text" id="login-emp-id" placeholder="請輸入帳號" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">登入密碼</label>
-          <input type="password" id="login-password" placeholder="預設密碼 1234" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
+          <input type="password" id="login-password" placeholder="請輸入密碼" class="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-red-500 focus:outline-none">
         </div>
 
         <button onclick="handleLogin()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg text-sm shadow-md transition duration-150">
@@ -58,15 +74,8 @@
         </button>
       </div>
 
-      <!-- 快速體驗切換 -->
-      <div class="mt-6 pt-5 border-t border-slate-100 text-xs">
-        <p class="text-slate-400 text-center mb-2">⚡ 快速測試體驗切換：</p>
-        <div class="grid grid-cols-4 gap-1.5">
-          <button onclick="quickFill('ADMIN01','admin123')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">管理員</button>
-          <button onclick="quickFill('M001','1234')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">所長</button>
-          <button onclick="quickFill('DM001','1234')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">副所長</button>
-          <button onclick="quickFill('S001','1234')" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 text-center font-mono">業代</button>
-        </div>
+      <div class="mt-6 text-center text-xs text-slate-400">
+        預設測試管理員帳號：<span class="font-mono font-semibold text-slate-600">1234</span> / 密碼：<span class="font-mono font-semibold text-slate-600">1234</span>
       </div>
     </div>
   </div>
@@ -155,7 +164,7 @@
               <!-- 動態渲染工作表分頁標籤 -->
             </div>
 
-            <!-- 類 Excel 表格容器 -->
+            <!-- 類 Excel 表格容器 (支援手機橫向滑動與首欄凍結鎖定) -->
             <div class="relative overflow-x-auto custom-scrollbar border border-slate-100 rounded-lg mt-3 max-h-[620px]">
               <table id="excel-table" class="w-full text-left border-collapse text-xs">
                 <!-- 動態注入表頭與資料列 -->
@@ -164,7 +173,7 @@
 
             <div class="flex items-center justify-between pt-3 text-[11px] text-slate-400">
               <span id="table-row-count">顯示 0 / 0 筆資料</span>
-              <span>💡 提示：點擊各表頭右側「▼」即可多選篩選與升降冪排序</span>
+              <span>💡 提示：點擊各表頭右側「▼」即可多選篩選與升降冪排序；手機橫向滑動首欄已鎖定</span>
             </div>
           </div>
         </section>
@@ -283,14 +292,14 @@
           </div>
         </div>
 
-        <!-- 分頁 3：員工帳號與管理 (智慧增量匯入、密碼查詢與刪除) -->
+        <!-- 分頁 3：員工帳號與管理 (智慧增量匯入、密碼查詢與刪除管理員) -->
         <div id="admin-tab-users" class="hidden space-y-6">
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-amber-50 border border-amber-200 p-4 rounded-xl text-xs text-amber-900">
             <div class="flex items-center space-x-2">
               <i class="fa-solid fa-circle-info text-base text-amber-600"></i>
               <div>
                 <p class="font-bold">智慧增量/更新模式說明：</p>
-                <p class="text-amber-800">下次如果只要更新特定職級（例如單獨匯入「所長」名單），系統會自動進行比對新增或更新，**並保留現有已匯入的業代、副所長與管理員名單**！</p>
+                <p class="text-amber-800">下次如果只要更新特定職級（例如單獨匯入「所長」名單），系統會自動進行比對新增或更新，**並保留現有已匯入的業代、副所長與管理員名單**！預設測試管理員（1234）日後亦可在此刪除。</p>
               </div>
             </div>
             <div class="flex items-center space-x-2 shrink-0">
@@ -321,7 +330,7 @@
               <table class="w-full text-left border-collapse text-xs">
                 <thead class="bg-slate-100 text-slate-600 uppercase font-semibold sticky top-0">
                   <tr>
-                    <th class="p-3 border-b">工號</th>
+                    <th class="p-3 border-b">帳號 / 工號</th>
                     <th class="p-3 border-b">姓名</th>
                     <th class="p-3 border-b">群組角色</th>
                     <th class="p-3 border-b">所屬營業所</th>
@@ -393,21 +402,15 @@
     let currentUser = null;
     let showAllPlainPasswords = false;
 
-    // 初始使用者名單 (含密碼、角色、最後登入時間)
+    // 初始使用者名單 (已將預設管理員設為帳號 1234 / 密碼 1234，可隨時在後台刪除)
     let userDatabase = [
-      { empId: 'ADMIN01', name: '王總管', role: 'admin', branch: '總部管理處', password: 'admin', lastLogin: '2024-11-12 10:30', viewCount: 15, readCurrent: true },
-      { empId: 'M001', name: '張所長', role: 'manager', branch: '中壢營業所', password: '1234', lastLogin: '2024-11-12 09:15', viewCount: 8, readCurrent: true },
-      { empId: 'DM001', name: '李副所長', role: 'deputy', branch: '中壢營業所', password: '1234', lastLogin: '2024-11-12 08:50', viewCount: 6, readCurrent: true },
-      { empId: 'S001', name: '陳業代', role: 'sales', branch: '中壢營業所', password: '1234', lastLogin: '2024-11-11 16:40', viewCount: 3, readCurrent: false },
-      { empId: 'S002', name: '林業代', role: 'sales', branch: '桃園營業所', password: '1234', lastLogin: '2024-11-10 14:20', viewCount: 2, readCurrent: false },
-      { empId: 'M002', name: '趙所長', role: 'manager', branch: '新竹營業所', password: '1234', lastLogin: '2024-11-12 08:30', viewCount: 5, readCurrent: true }
+      { empId: '1234', name: '預設管理員', role: 'admin', branch: '總部管理處', password: '1234', lastLogin: '尚未登入', viewCount: 0, readCurrent: true }
     ];
 
     // 資料夾分類 (含歸屬月份)
     let categories = [
       { id: 'cat-1', month: '2024-11', name: '11月新車實績與競賽' },
-      { id: 'cat-2', month: '2024-11', name: '11月重要業務規章公告' },
-      { id: 'cat-3', month: '2024-10', name: '10月各所結算與獎勵' }
+      { id: 'cat-2', month: '2024-11', name: '11月重要業務規章公告' }
     ];
 
     // 預設示範實績資料集
@@ -417,7 +420,6 @@
       { "營業所": "中壢營業所", "職級": "業代", "業代姓名": "陳業代", "目標台數": 8, "領牌實績": 9, "達成率": "112.5%", "重點車款台數": 3 },
       { "營業所": "中壢營業所", "職級": "業代", "業代姓名": "黃業代", "目標台數": 8, "領牌實績": 6, "達成率": "75.0%", "重點車款台數": 1 },
       { "營業所": "桃園營業所", "職級": "業代", "業代姓名": "林業代", "目標台數": 10, "領牌實績": 11, "達成率": "110.0%", "重點車款台數": 4 },
-      { "營業所": "桃園營業所", "職級": "業代", "業代姓名": "吳業代", "目標台數": 8, "領牌實績": 5, "達成率": "62.5%", "重點車款台數": 2 },
       { "營業所": "新竹營業所", "職級": "所長", "業代姓名": "趙所長", "目標台數": 22, "領牌實績": 24, "達成率": "109.1%", "重點車款台數": 7 }
     ];
 
@@ -425,22 +427,11 @@
     let portalFiles = [
       {
         id: 'file-1',
-        title: '11月全區新車實績達成進度表 (每日更新)',
+        title: '11月全區新車實績達成進度表',
         catId: 'cat-1',
         updateTime: '2024-11-12 14:00',
         allowedRoles: ['admin', 'manager', 'deputy', 'sales'],
         sheets: { '全區實績總表': defaultSalesData }
-      },
-      {
-        id: 'file-2',
-        title: '各營業所主管專用管理損益分析',
-        catId: 'cat-1',
-        updateTime: '2024-11-10 09:30',
-        allowedRoles: ['admin', 'manager'],
-        sheets: { '主管損益': [
-          { "營業所": "中壢營業所", "主管姓名": "張所長", "預算目標": 5000000, "實績金額": 5420000, "達成率": "108.4%" },
-          { "營業所": "桃園營業所", "主管姓名": "錢所長", "預算目標": 4800000, "實績金額": 4600000, "達成率": "95.8%" }
-        ]}
       }
     ];
 
@@ -448,15 +439,10 @@
     let activeFile = portalFiles[0];
     let activeSheetName = '全區實績總表';
     let currentFilteredData = [];
-    let activeFilters = {}; // 各欄位多選勾選條件
+    let activeFilters = {};
     let currentSort = { col: null, asc: true };
 
-    /* ---------------- 1. 登入與身分切換 ---------------- */
-    function quickFill(id, pwd) {
-      document.getElementById('login-emp-id').value = id;
-      document.getElementById('login-password').value = pwd;
-    }
-
+    /* ---------------- 1. 登入與介面切換 ---------------- */
     function handleLogin() {
       const empId = document.getElementById('login-emp-id').value.trim();
       const pwd = document.getElementById('login-password').value.trim();
@@ -476,7 +462,7 @@
       document.getElementById('view-portal').classList.remove('hidden');
 
       // 更新前台資訊
-      const roleBadge = { admin: '管理員', manager: '所長', deputy: '副所長', sales: '業代' }[currentUser.role];
+      const roleBadge = { admin: '管理員', manager: '所長', deputy: '副所長', sales: '業代' }[currentUser.role] || currentUser.role;
       document.getElementById('portal-user-info').innerText = `${currentUser.name} (${currentUser.empId}) ‧ [${roleBadge} - ${currentUser.branch}]`;
 
       // 管理員按鈕顯示控制
@@ -486,7 +472,7 @@
         document.getElementById('btn-enter-admin').classList.add('hidden');
       }
 
-      // 繪製動態浮水印 (管理員與前台同仁皆強制繪製)
+      // 繪製動態浮水印 (只顯示營業所與姓名)
       renderWatermark();
 
       // 初始化分類與檔案
@@ -517,7 +503,7 @@
       renderWatermark();
     }
 
-    /* ---------------- 2. 動態工號浮水印 (防翻拍與外洩) ---------------- */
+    /* ---------------- 2. 動態浮水印 (僅顯示營業所與姓名) ---------------- */
     function renderWatermark() {
       if (!currentUser) return;
       const canvas = document.getElementById('watermark-layer');
@@ -528,16 +514,16 @@
       canvas.height = height;
 
       ctx.clearRect(0, 0, width, height);
-      ctx.font = '15px sans-serif';
+      ctx.font = '16px sans-serif';
       ctx.fillStyle = '#64748b';
       ctx.textAlign = 'center';
 
-      const timeStr = new Date().toLocaleDateString('zh-TW');
-      const text = `${currentUser.name} ${currentUser.empId} ‧ 桃苗汽車機密戰情禁止外流 ‧ ${timeStr}`;
+      // 依需求：只顯示營業所與姓名
+      const text = `${currentUser.branch} ${currentUser.name}`;
 
       ctx.save();
       ctx.rotate(-22 * Math.PI / 180);
-      for (let x = -width; x < width * 2; x += 320) {
+      for (let x = -width; x < width * 2; x += 300) {
         for (let y = -height; y < height * 2; y += 140) {
           ctx.fillText(text, x, y);
         }
@@ -571,7 +557,6 @@
           : "w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 flex items-center justify-between";
       });
 
-      // 過濾該分類下、當前使用者有權限閱讀的檔案
       const availableFiles = portalFiles.filter(f => f.catId === catId && f.allowedRoles.includes(currentUser.role));
       const fileContainer = document.getElementById('file-list');
 
@@ -587,7 +572,6 @@
         </button>
       `).join('');
 
-      // 預設開啟第一個檔案
       openFile(availableFiles[0].id);
     }
 
@@ -598,10 +582,8 @@
       document.getElementById('current-file-title').innerText = activeFile.title;
       document.getElementById('current-file-meta').innerText = `最後更新時間：${activeFile.updateTime}`;
 
-      // 註記當前使用者已閱
       currentUser.readCurrent = true;
 
-      // 工作表分頁標籤處理
       const sheetNames = Object.keys(activeFile.sheets);
       activeSheetName = sheetNames[0];
 
@@ -617,7 +599,6 @@
         tabsBar.classList.add('hidden');
       }
 
-      // 重設篩選
       activeFilters = {};
       currentSort = { col: null, asc: true };
       applyTableFilters();
@@ -629,12 +610,11 @@
       applyTableFilters();
     }
 
-    /* ---------------- 4. 類 Excel 全欄位篩選、排序與合計列核心 ---------------- */
+    /* ---------------- 4. 類 Excel 全欄位篩選、排序與凍結首欄 ---------------- */
     function applyTableFilters() {
       const rawData = activeFile.sheets[activeSheetName] || [];
       const columns = rawData.length > 0 ? Object.keys(rawData[0]) : [];
 
-      // 1. 多條件過濾
       currentFilteredData = rawData.filter(row => {
         for (const col of columns) {
           if (activeFilters[col] && activeFilters[col].length > 0) {
@@ -645,7 +625,6 @@
         return true;
       });
 
-      // 2. 排序
       if (currentSort.col) {
         currentFilteredData.sort((a, b) => {
           let vA = a[currentSort.col];
@@ -671,12 +650,13 @@
         return;
       }
 
-      // 1. 生成表頭 (每個欄位均附帶類 Excel 下拉按鈕)
+      // 1. 生成表頭 (首欄附帶凍結 class="freeze-col")
       let theadHtml = `<thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 shadow-sm z-20"><tr>`;
-      columns.forEach(col => {
+      columns.forEach((col, idx) => {
         const isFiltered = activeFilters[col] && activeFilters[col].length > 0;
+        const freezeClass = (idx === 0) ? 'freeze-col' : '';
         theadHtml += `
-          <th class="p-2.5 border-b border-slate-200 whitespace-nowrap">
+          <th class="p-2.5 border-b border-slate-200 whitespace-nowrap ${freezeClass}">
             <div class="flex items-center justify-between space-x-2">
               <span>${col}</span>
               <button onclick="toggleFilterMenu(event, '${col}')" class="p-1 rounded hover:bg-slate-200 ${isFiltered ? 'text-red-600 font-black' : 'text-slate-400'}">
@@ -687,36 +667,37 @@
       });
       theadHtml += `</tr></thead>`;
 
-      // 2. 生成資料列 (條紋斑馬紋)
+      // 2. 生成資料列
       let tbodyHtml = `<tbody class="divide-y divide-slate-100">`;
-      data.forEach((row, idx) => {
-        tbodyHtml += `<tr class="${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-red-50/30 transition">`;
-        columns.forEach(col => {
-          tbodyHtml += `<td class="p-2.5 whitespace-nowrap text-slate-700">${row[col] !== undefined ? row[col] : ''}</td>`;
+      data.forEach((row, rIdx) => {
+        tbodyHtml += `<tr class="${rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-red-50/30 transition">`;
+        columns.forEach((col, cIdx) => {
+          const freezeClass = (cIdx === 0) ? 'freeze-col' : '';
+          tbodyHtml += `<td class="p-2.5 whitespace-nowrap text-slate-700 ${freezeClass}">${row[col] !== undefined ? row[col] : ''}</td>`;
         });
         tbodyHtml += `</tr>`;
       });
       tbodyHtml += `</tbody>`;
 
-      // 3. 生成動態合計 / 平均置底列 (Summary Row)
+      // 3. 生成合計 / 平均置底列
       let tfootHtml = `<tfoot class="bg-slate-100 text-slate-800 font-bold sticky bottom-0 border-t-2 border-slate-300 z-10"><tr>`;
       columns.forEach((col, idx) => {
+        const freezeClass = (idx === 0) ? 'freeze-col' : '';
         if (idx === 0) {
-          tfootHtml += `<td class="p-2.5 whitespace-nowrap text-red-700">合計 / 平均</td>`;
+          tfootHtml += `<td class="p-2.5 whitespace-nowrap text-red-700 ${freezeClass}">合計 / 平均</td>`;
         } else {
-          // 檢查該欄是否為數值
           const numbers = data.map(r => parseFloat(String(r[col]).replace('%', ''))).filter(n => !isNaN(n));
           if (numbers.length > 0 && numbers.length === data.length) {
             const sum = numbers.reduce((a, b) => a + b, 0);
             const avg = sum / numbers.length;
             const isPercent = String(data[0][col]).includes('%');
             tfootHtml += `
-              <td class="p-2.5 whitespace-nowrap font-mono text-[11px]">
+              <td class="p-2.5 whitespace-nowrap font-mono text-[11px] ${freezeClass}">
                 <div>和: ${isPercent ? sum.toFixed(1) + '%' : sum.toLocaleString()}</div>
                 <div class="text-slate-500 font-normal">均: ${isPercent ? avg.toFixed(1) + '%' : avg.toFixed(1)}</div>
               </td>`;
           } else {
-            tfootHtml += `<td class="p-2.5 whitespace-nowrap text-slate-400">-</td>`;
+            tfootHtml += `<td class="p-2.5 whitespace-nowrap text-slate-400 ${freezeClass}">-</td>`;
           }
         }
       });
@@ -725,14 +706,12 @@
       table.innerHTML = theadHtml + tbodyHtml + tfootHtml;
     }
 
-    // 快捷視野：只看本所
     function filterByMyBranch() {
       if (!currentUser) return;
       activeFilters = { "營業所": [currentUser.branch] };
       applyTableFilters();
     }
 
-    // 快捷視野：只看本人
     function filterByMe() {
       if (!currentUser) return;
       activeFilters = { "業代姓名": [currentUser.name] };
@@ -745,7 +724,6 @@
       applyTableFilters();
     }
 
-    /* 類 Excel 下拉浮動選單 (多選與排序) */
     function toggleFilterMenu(e, col) {
       e.stopPropagation();
       const oldMenu = document.getElementById('excel-filter-popup');
@@ -818,7 +796,7 @@
       if (popup) popup.remove();
     }
 
-    /* ---------------- 5. 管理員後台四大分頁切換與操作 ---------------- */
+    /* ---------------- 5. 管理員後台四大分頁管理 ---------------- */
     function switchAdminTab(tab) {
       ['files', 'folders', 'users', 'audit'].forEach(t => {
         document.getElementById(`admin-tab-${t}`).classList.add('hidden');
@@ -1034,7 +1012,7 @@
 
       const admins = userDatabase.filter(u => u.role === 'admin');
       if (target.role === 'admin' && admins.length <= 1) {
-        if (!confirm('⚠️ 注意：這是系統目前最後一位管理員！刪除後可能會無法進入後台，您確定要刪除嗎？')) {
+        if (!confirm('⚠️ 注意：這是系統目前最後一位管理員！刪除後您可能無法再次登入後台，確定要刪除嗎？')) {
           return;
         }
       } else {
@@ -1078,15 +1056,15 @@
           const parts = lines[i].split(',').map(p => p.trim());
           if (parts.length >= 4) {
             const empId = parts[0];
-            const name = parts[1];
-            let role = parts[2].toLowerCase();
+            const name = parts;
+            let role = parts.toLowerCase();
             if (role.includes('所長') && !role.includes('副')) role = 'manager';
             else if (role.includes('副所長') || role.includes('副')) role = 'deputy';
             else if (role.includes('業代')) role = 'sales';
             else if (role.includes('管理')) role = 'admin';
 
-            const branch = parts[3];
-            const password = parts[4] || '1234';
+            const branch = parts;
+            const password = parts || '1234';
 
             const existing = userDatabase.find(u => u.empId.toLowerCase() === empId.toLowerCase());
             if (existing) {
@@ -1105,7 +1083,7 @@
           }
         }
 
-        alert(`✅ 智慧增量匯入完成！\n新增人員：${addedCount} 位\n更新人員：${updatedCount} 位\n現有其他職級同仁名單已完整保留！`);
+        alert(`✅ 智慧增量匯入完成！\n新增人員：${addedCount} 位\n更新人員：${updatedCount} 位\n現有管理員與其他同仁名單均已完整保留！`);
         renderAdminUsers();
         e.target.value = '';
       };
