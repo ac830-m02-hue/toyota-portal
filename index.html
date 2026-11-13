@@ -48,7 +48,7 @@
   <!-- 動態浮水印畫布 (前後台全域覆蓋，僅顯示營業所與姓名) -->
   <canvas id="watermark-layer"></canvas>
 
-  <!-- ==================== 1. 系統登入頁面 (已移除快速測試按鈕) ==================== -->
+  <!-- ==================== 1. 系統登入頁面 ==================== -->
   <div id="view-login" class="min-h-screen flex items-center justify-center p-4">
     <div class="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-8">
       <div class="text-center mb-6">
@@ -191,6 +191,10 @@
           <h2 class="font-bold text-base">桃苗汽車實績與戰情查詢系統 ‧ 後台主控台</h2>
         </div>
         <div class="flex items-center space-x-3">
+          <!-- 🌐 雲端連線設定按鈕 -->
+          <button onclick="openCloudConfigModal()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition shadow flex items-center space-x-1">
+            <i class="fa-solid fa-cloud"></i><span>🌐 雲端連線設定</span>
+          </button>
           <button onclick="exportFullDatabaseJson()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 rounded-lg text-xs font-medium transition">
             <i class="fa-solid fa-download mr-1"></i>備份資料庫
           </button>
@@ -396,13 +400,52 @@
     </div>
   </div>
 
+  <!-- 🌐 雲端連線設定 Modal -->
+  <div id="modal-cloud-config" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 space-y-4 shadow-xl">
+      <div class="flex items-center justify-between border-b pb-3 border-slate-100">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center space-x-2">
+          <i class="fa-solid fa-cloud text-blue-600"></i>
+          <span>🌐 JSONBin.io 雲端資料庫連線設定</span>
+        </h3>
+        <button onclick="closeCloudConfigModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-xs text-slate-500 leading-relaxed">
+        填入從 JSONBin.io 取得的 <b class="text-slate-700">Master Key</b> 與 <b class="text-slate-700">Bin ID</b> 後，系統在後台上傳報表、修改密碼或名單時，將自動即時同步至雲端，外勤業代在外連線打開網址即可自動載入最新數據！
+      </p>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-600 font-semibold mb-1">X-Master-Key (API Key)</label>
+          <input type="password" id="input-master-key" placeholder="貼上您的 Master Key (例: $2b$10$...)" class="w-full px-3 py-2 border border-slate-200 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-slate-600 font-semibold mb-1">Bin ID (雲端倉庫唯一識別碼)</label>
+          <input type="text" id="input-bin-id" placeholder="貼上您的 Bin ID (例: 6734a...)" class="w-full px-3 py-2 border border-slate-200 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none">
+        </div>
+      </div>
+      <div class="flex justify-between items-center pt-2 text-xs">
+        <button onclick="testCloudConnection()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium">測試連線</button>
+        <div class="space-x-2">
+          <button onclick="closeCloudConfigModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded">取消</button>
+          <button onclick="saveCloudConfig()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium">儲存設定並同步</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== 系統核心邏輯 JavaScript ==================== -->
   <script>
     /* ---------------- 全域響應式資料狀態 ---------------- */
     let currentUser = null;
     let showAllPlainPasswords = false;
 
-    // 初始使用者名單 (已將預設管理員設為帳號 1234 / 密碼 1234，可隨時在後台刪除)
+    // 雲端連線設定狀態
+    let cloudConfig = {
+      masterKey: localStorage.getItem('tm_master_key') || '',
+      binId: localStorage.getItem('tm_bin_id') || ''
+    };
+
+    // 初始使用者名單 (預設管理員帳號 1234 / 密碼 1234)
     let userDatabase = [
       { empId: '1234', name: '預設管理員', role: 'admin', branch: '總部管理處', password: '1234', lastLogin: '尚未登入', viewCount: 0, readCurrent: true }
     ];
@@ -442,10 +485,107 @@
     let activeFilters = {};
     let currentSort = { col: null, asc: true };
 
+    /* ---------------- 雲端同步核心邏輯 (JSONBin.io) ---------------- */
+    async function fetchFromCloud() {
+      if (!cloudConfig.masterKey || !cloudConfig.binId) return false;
+      try {
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}/latest`, {
+          headers: { 'X-Master-Key': cloudConfig.masterKey }
+        });
+        if (!res.ok) throw new Error('雲端讀取失敗');
+        const data = await res.json();
+        const record = data.record;
+        if (record && record.userDatabase && record.portalFiles) {
+          userDatabase = record.userDatabase;
+          categories = record.categories || categories;
+          portalFiles = record.portalFiles || portalFiles;
+          console.log('✅ 已從 JSONBin.io 成功同步最新資料！');
+          return true;
+        }
+      } catch (err) {
+        console.warn('⚠️ 雲端讀取失敗或尚未設定，使用本機快取:', err);
+      }
+      return false;
+    }
+
+    async function pushToCloud() {
+      if (!cloudConfig.masterKey || !cloudConfig.binId) return;
+      try {
+        const payload = {
+          updatedAt: new Date().toISOString(),
+          userDatabase,
+          categories,
+          portalFiles
+        };
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${cloudConfig.binId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': cloudConfig.masterKey
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('雲端寫入失敗');
+        console.log('☁️ 數據已自動同步至 JSONBin.io 雲端資料庫！');
+      } catch (err) {
+        console.error('❌ 雲端同步失敗:', err);
+      }
+    }
+
+    function openCloudConfigModal() {
+      document.getElementById('input-master-key').value = cloudConfig.masterKey;
+      document.getElementById('input-bin-id').value = cloudConfig.binId;
+      document.getElementById('modal-cloud-config').classList.remove('hidden');
+    }
+
+    function closeCloudConfigModal() {
+      document.getElementById('modal-cloud-config').classList.add('hidden');
+    }
+
+    async function saveCloudConfig() {
+      const mk = document.getElementById('input-master-key').value.trim();
+      const bid = document.getElementById('input-bin-id').value.trim();
+      if (!mk || !bid) {
+        alert('請完整填寫 Master Key 與 Bin ID！');
+        return;
+      }
+      cloudConfig.masterKey = mk;
+      cloudConfig.binId = bid;
+      localStorage.setItem('tm_master_key', mk);
+      localStorage.setItem('tm_bin_id', bid);
+      alert('✅ 雲端連線設定已儲存！現在將立即執行全站數據上傳同步。');
+      closeCloudConfigModal();
+      await pushToCloud();
+    }
+
+    async function testCloudConnection() {
+      const mk = document.getElementById('input-master-key').value.trim();
+      const bid = document.getElementById('input-bin-id').value.trim();
+      if (!mk || !bid) {
+        alert('請先填入金鑰與 Bin ID 才能測試！');
+        return;
+      }
+      try {
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${bid}/latest`, {
+          headers: { 'X-Master-Key': mk }
+        });
+        if (res.ok) {
+          alert('🎉 連線測試成功！金鑰與 Bin ID 皆正確無誤。');
+        } else {
+          alert(`❌ 連線失敗 (HTTP ${res.status})，請確認金鑰與 Bin ID 是否複製完整！`);
+        }
+      } catch (e) {
+        alert('❌ 網路請求錯誤，請確認網路連線是否正常。');
+      }
+    }
+
     /* ---------------- 1. 登入與介面切換 ---------------- */
-    function handleLogin() {
+    async function handleLogin() {
       const empId = document.getElementById('login-emp-id').value.trim();
       const pwd = document.getElementById('login-password').value.trim();
+
+      // 登入前嘗試先自雲端拉取最新資料庫
+      await fetchFromCloud();
 
       const user = userDatabase.find(u => u.empId.toLowerCase() === empId.toLowerCase() && u.password === pwd);
       if (!user) {
@@ -456,6 +596,7 @@
       currentUser = user;
       currentUser.lastLogin = new Date().toISOString().replace('T', ' ').substring(0, 16);
       currentUser.viewCount = (currentUser.viewCount || 0) + 1;
+      pushToCloud();
 
       // 切換視圖
       document.getElementById('view-login').classList.add('hidden');
@@ -583,6 +724,7 @@
       document.getElementById('current-file-meta').innerText = `最後更新時間：${activeFile.updateTime}`;
 
       currentUser.readCurrent = true;
+      pushToCloud();
 
       const sheetNames = Object.keys(activeFile.sheets);
       activeSheetName = sheetNames[0];
@@ -861,7 +1003,7 @@
       if (document.getElementById('perm-sales').checked) roles.push('sales');
 
       const reader = new FileReader();
-      reader.onload = function(e) {
+      reader.onload = async function(e) {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetsData = {};
@@ -879,10 +1021,11 @@
         };
 
         portalFiles.unshift(newFile);
-        alert('✅ 報表上傳並解析發布成功！');
+        alert('✅ 報表上傳成功！正在自動同步至雲端...');
         renderAdminFiles();
         document.getElementById('upload-file-name').value = '';
         fileInput.value = '';
+        await pushToCloud();
       };
       reader.readAsArrayBuffer(fileInput.files[0]);
     }
@@ -894,7 +1037,7 @@
       if (!target) return;
 
       const reader = new FileReader();
-      reader.onload = function(ev) {
+      reader.onload = async function(ev) {
         const data = new Uint8Array(ev.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetsData = {};
@@ -903,16 +1046,18 @@
         });
         target.sheets = sheetsData;
         target.updateTime = new Date().toISOString().replace('T', ' ').substring(0, 16);
-        alert(`✅ 檔案【${target.title}】數據已成功覆蓋更新！`);
+        alert(`✅ 檔案【${target.title}】數據已成功覆蓋！正在同步至雲端...`);
         renderAdminFiles();
+        await pushToCloud();
       };
       reader.readAsArrayBuffer(file);
     }
 
-    function handleDeleteFile(fileId) {
+    async function handleDeleteFile(fileId) {
       if (!confirm('確定要刪除這份檔案嗎？此動作不可復原！')) return;
       portalFiles = portalFiles.filter(f => f.id !== fileId);
       renderAdminFiles();
+      await pushToCloud();
     }
 
     /* 後台分頁 2：資料夾分類與歸屬月份管理 */
@@ -936,7 +1081,7 @@
       `).join('');
     }
 
-    function handleCreateFolder() {
+    async function handleCreateFolder() {
       const month = document.getElementById('new-folder-month').value;
       const name = document.getElementById('new-folder-name').value.trim();
       if (!month || !name) {
@@ -947,21 +1092,24 @@
       alert('✅ 分類新增成功！');
       document.getElementById('new-folder-name').value = '';
       renderAdminFolders();
+      await pushToCloud();
     }
 
-    function handleUpdateFolder(catId) {
+    async function handleUpdateFolder(catId) {
       const cat = categories.find(c => c.id === catId);
       if (!cat) return;
       cat.month = document.getElementById(`cat-month-${catId}`).value;
       cat.name = document.getElementById(`cat-name-${catId}`).value.trim();
       alert('✅ 分類名稱與歸屬月份已儲存！');
       renderAdminFolders();
+      await pushToCloud();
     }
 
-    function handleDeleteFolder(catId) {
+    async function handleDeleteFolder(catId) {
       if (!confirm('刪除分類將會影響該分類下的檔案顯示，確定要刪除嗎？')) return;
       categories = categories.filter(c => c.id !== catId);
       renderAdminFolders();
+      await pushToCloud();
     }
 
     /* 後台分頁 3：員工帳號增量匯入、密碼顯示與刪除管理員 */
@@ -995,7 +1143,7 @@
       renderAdminUsers();
     }
 
-    function adminResetUserPassword(empId) {
+    async function adminResetUserPassword(empId) {
       const user = userDatabase.find(u => u.empId === empId);
       if (!user) return;
       const newPwd = prompt(`請輸入同仁【${user.name} (${user.empId})】的新密碼：`, user.password);
@@ -1003,10 +1151,11 @@
         user.password = newPwd.trim();
         alert(`✅ 同仁【${user.name}】密碼已更新為：${user.password}`);
         renderAdminUsers();
+        await pushToCloud();
       }
     }
 
-    function handleDeleteUser(empId) {
+    async function handleDeleteUser(empId) {
       const target = userDatabase.find(u => u.empId === empId);
       if (!target) return;
 
@@ -1022,6 +1171,7 @@
       userDatabase = userDatabase.filter(u => u.empId !== empId);
       alert(`✅ 已成功刪除帳號：${target.name}`);
       renderAdminUsers();
+      await pushToCloud();
     }
 
     function downloadUserCsvTemplate() {
@@ -1041,7 +1191,7 @@
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = function(evt) {
+      reader.onload = async function(evt) {
         const text = evt.target.result;
         const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
         if (lines.length <= 1) {
@@ -1086,6 +1236,7 @@
         alert(`✅ 智慧增量匯入完成！\n新增人員：${addedCount} 位\n更新人員：${updatedCount} 位\n現有管理員與其他同仁名單均已完整保留！`);
         renderAdminUsers();
         e.target.value = '';
+        await pushToCloud();
       };
       reader.readAsText(file);
     }
@@ -1124,7 +1275,7 @@
       document.getElementById('modal-change-pwd').classList.add('hidden');
     }
 
-    function submitChangePassword() {
+    async function submitChangePassword() {
       const p1 = document.getElementById('input-new-pwd').value.trim();
       const p2 = document.getElementById('input-confirm-pwd').value.trim();
       if (!p1 || p1 !== p2) {
@@ -1134,6 +1285,7 @@
       currentUser.password = p1;
       alert('🎉 密碼修改成功！下次登入請使用新密碼。');
       closeChangePwdModal();
+      await pushToCloud();
     }
 
     /* ---------------- 7. 資料庫 JSON 匯出備份 ---------------- */
